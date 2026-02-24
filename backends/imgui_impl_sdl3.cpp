@@ -185,6 +185,7 @@ static void ImGui_ImplSDL3_UpdateIme()
     ImGui_ImplSDL3_Data* bd = ImGui_ImplSDL3_GetBackendData();
     ImGuiPlatformImeData* data = &bd->ImeData;
     SDL_Window* window = SDL_GetKeyboardFocus();
+    ImGuiIO& io = ImGui::GetIO();
 
     // Stop previous input
     if ((!(data->WantVisible || data->WantTextInput) || bd->ImeWindow != window) && bd->ImeWindow != nullptr)
@@ -207,8 +208,9 @@ static void ImGui_ImplSDL3_UpdateIme()
         SDL_SetTextInputArea(window, &r, 0);
         bd->ImeWindow = window;
     }
+    SDL_PropertiesID props;
     if (!SDL_TextInputActive(window) && (data->WantVisible || data->WantTextInput))
-        SDL_StartTextInput(window);
+        SDL_StartTextInputWithProperties(window,*((SDL_PropertiesID*) io.UserData));
 }
 
 // Not static to allow third-party code to use that if they want to (but undocumented)
