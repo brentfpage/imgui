@@ -69,6 +69,8 @@ Index of this file:
 #define LOG_TAG "librador"
 #include <android/log.h>
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define CHECKBOX_SIZE (ImGui::GetFontSize() + style.FramePadding.y*2)
+
 
 #ifndef IMGUI_DISABLE
 
