@@ -41,6 +41,7 @@ Index of this file:
 #endif
 
 #include "imgui.h"
+#include "custom_imgui.h"
 #ifndef IMGUI_DISABLE
 #include "imgui_internal.h"
 
@@ -10817,6 +10818,1372 @@ void ImGui::TabItemLabelAndCloseButton(ImDrawList* draw_list, const ImRect& bb, 
     if (out_just_closed)
         *out_just_closed = close_button_pressed;
 }
+
+// customizations; author: brentfpage
+//-------------------------------------------------------------------------
+// [SECTION] Widgets: SliderScalar, SliderFloat, SliderInt, etc.
+//-------------------------------------------------------------------------
+// Note: p_data, p_min and p_max are _pointers_ to a memory address holding the data. For a slider, they are all required.
+// Read code of e.g. SliderFloat(), SliderInt() etc. or examples in 'Demo->Widgets->Data Types' to understand how to use this function directly.
+//
+// customization: suffix is displayed when the slider is in manual input mode
+bool ImGui::custom_SliderScalar(const char* label, const char* suffix, ImGuiDataType data_type, void* p_data, const void* p_min, const void* p_max, const char* format, ImGuiSliderFlags flags)
+{
+    ImGuiWindow* window = GetCurrentWindow();
+    if (window->SkipItems)
+        return false;
+
+    ImGuiContext& g = *GImGui;
+    const ImGuiStyle& style = g.Style;
+    const ImGuiID id = window->GetID(label);
+    const float w = CalcItemWidth();
+    const ImU32 color_marker = (g.NextItemData.HasFlags & ImGuiNextItemDataFlags_HasColorMarker) ? g.NextItemData.ColorMarker : 0;
+
+    const ImVec2 label_size = CalcTextSize(label, NULL, true);
+    const ImRect frame_bb(window->DC.CursorPos, window->DC.CursorPos + ImVec2(w, label_size.y + style.FramePadding.y * 2.0f));
+    const ImRect total_bb(frame_bb.Min, frame_bb.Max + ImVec2(label_size.x > 0.0f ? style.ItemInnerSpacing.x + label_size.x : 0.0f, 0.0f));
+
+    const bool temp_input_allowed = (flags & ImGuiSliderFlags_NoInput) == 0;
+    ItemSize(total_bb, style.FramePadding.y);
+    if (!ItemAdd(total_bb, id, &frame_bb, temp_input_allowed ? ImGuiItemFlags_Inputable : 0))
+        return false;
+
+    // Default format string when passing NULL
+    if (format == NULL)
+        format = DataTypeGetInfo(data_type)->PrintFmt;
+
+    const bool hovered = ItemHoverable(frame_bb, id, g.LastItemData.ItemFlags);
+    bool temp_input_is_active = temp_input_allowed && TempInputIsActive(id);
+    if (!temp_input_is_active)
+    {
+        // Tabbing or Ctrl+Click on Slider turns it into an input box
+        const bool clicked = hovered && IsMouseClicked(0, ImGuiInputFlags_None, id);
+        const bool make_active = (clicked || g.NavActivateId == id);
+        if (make_active && clicked)
+            SetKeyOwner(ImGuiKey_MouseLeft, id);
+        if (make_active && temp_input_allowed)
+            if ((clicked && g.IO.KeyCtrl) || (g.NavActivateId == id && (g.NavActivateFlags & ImGuiActivateFlags_PreferInput)))
+                temp_input_is_active = true;
+
+        // Store initial value (not used by main lib but available as a convenience but some mods e.g. to revert)
+        if (make_active)
+            memcpy(&g.ActiveIdValueOnActivation, p_data, DataTypeGetInfo(data_type)->Size);
+
+        if (make_active && !temp_input_is_active)
+        {
+            SetActiveID(id, window);
+            SetFocusID(id, window);
+            FocusWindow(window);
+            g.ActiveIdUsingNavDirMask |= (1 << ImGuiDir_Left) | (1 << ImGuiDir_Right);
+        }
+    }
+
+    if (temp_input_is_active)
+    {
+        // Only clamp Ctrl+Click input when ImGuiSliderFlags_ClampOnInput is set (generally via ImGuiSliderFlags_AlwaysClamp)
+        const bool clamp_enabled = (flags & ImGuiSliderFlags_ClampOnInput) != 0;
+        return custom_TempInputScalar(frame_bb, id, label, suffix, data_type, p_data, format, clamp_enabled ? p_min : NULL, clamp_enabled ? p_max : NULL);
+    }
+
+    // Draw frame
+    const ImU32 frame_col = GetColorU32(g.ActiveId == id ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
+    RenderNavCursor(frame_bb, id);
+    RenderFrame(frame_bb.Min, frame_bb.Max, frame_col, false, style.FrameRounding);
+    if (color_marker != 0 && style.ColorMarkerSize > 0.0f)
+        RenderColorComponentMarker(frame_bb, GetColorU32(color_marker), style.FrameRounding);
+    RenderFrameBorder(frame_bb.Min, frame_bb.Max, g.Style.FrameRounding);
+
+    // Slider behavior
+    ImRect grab_bb;
+    const bool value_changed = SliderBehavior(frame_bb, id, data_type, p_data, p_min, p_max, format, flags, &grab_bb);
+    if (value_changed)
+        MarkItemEdited(id);
+
+    // Render grab
+    if (grab_bb.Max.x > grab_bb.Min.x)
+        window->DrawList->AddRectFilled(grab_bb.Min, grab_bb.Max, GetColorU32(g.ActiveId == id ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab), style.GrabRounding);
+
+    // Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
+    char value_buf[64];
+    const char* value_buf_end = value_buf + DataTypeFormatString(value_buf, IM_COUNTOF(value_buf), data_type, p_data, format);
+    if (g.LogEnabled)
+        LogSetNextTextDecoration("{", "}");
+    RenderTextClipped(frame_bb.Min, frame_bb.Max, value_buf, value_buf_end, NULL, ImVec2(0.5f, 0.5f));
+
+    if (label_size.x > 0.0f)
+        RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label);
+
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | (temp_input_allowed ? ImGuiItemStatusFlags_Inputable : 0));
+
+    return value_changed;
+}
+
+
+bool ImGui::custom_SliderFloat(const char* label, const char* suffix, float* v, float v_min, float v_max, const char* format, ImGuiSliderFlags flags)
+{
+    return custom_SliderScalar(label, suffix, ImGuiDataType_Float, v, &v_min, &v_max, format, flags);
+}
+
+// Create text input in place of another active widget (e.g. used when doing a Ctrl+Click on drag/slider widgets)
+// FIXME: Facilitate using this in variety of other situations.
+// FIXME: Among other things, setting ImGuiItemFlags_AllowDuplicateId in LastItemData is currently correct but
+// the expected relationship between TempInputXXX functions and LastItemData is a little fishy.
+bool ImGui::custom_TempInputText(const ImRect& bb, ImGuiID id, const char* label, const char* suffix, char* buf, int buf_size, ImGuiInputTextFlags flags, const ImVec2 label_pos, const ImVec2 value_text_size)
+{
+    // On the first frame, g.TempInputTextId == 0, then on subsequent frames it becomes == id.
+    // We clear ActiveID on the first frame to allow the InputText() taking it back.
+    ImGuiContext& g = *GImGui;
+    const bool init = (g.TempInputId != id);
+    if (init)
+        ClearActiveID();
+
+    g.CurrentWindow->DC.CursorPos = bb.Min;
+    g.LastItemData.ItemFlags |= ImGuiItemFlags_AllowDuplicateId;
+    bool value_changed = custom_InputTextEx(label, suffix, NULL, buf, buf_size, bb.GetSize(), flags | ImGuiInputTextFlags_MergedItem, NULL, NULL, label_pos, value_text_size);
+    if (init)
+    {
+        // First frame we started displaying the InputText widget, we expect it to take the active id.
+        IM_ASSERT(g.ActiveId == id);
+        g.TempInputId = g.ActiveId;
+    }
+    return value_changed;
+}
+
+// Note that Drag/Slider functions are only forwarding the min/max values clamping values if the ImGuiSliderFlags_AlwaysClamp flag is set!
+// This is intended: this way we allow Ctrl+Click manual input to set a value out of bounds, for maximum flexibility.
+// However this may not be ideal for all uses, as some user code may break on out of bound values.
+bool ImGui::custom_TempInputScalar(const ImRect& bb, ImGuiID id, const char* label, const char* suffix, ImGuiDataType data_type, void* p_data, const char* format, const void* p_clamp_min, const void* p_clamp_max, const ImVec2 label_pos, const ImVec2 value_text_size)
+{
+    // FIXME: May need to clarify display behavior if format doesn't contain %.
+    // "%d" -> "%d" / "There are %d items" -> "%d" / "items" -> "%d" (fallback). Also see #6405
+    ImGuiContext& g = *GImGui;
+    const ImGuiDataTypeInfo* type_info = DataTypeGetInfo(data_type);
+    char fmt_buf[32];
+    char data_buf[32];
+    format = ImParseFormatTrimDecorations(format, fmt_buf, IM_COUNTOF(fmt_buf));
+    if (format[0] == 0)
+        format = type_info->PrintFmt;
+    DataTypeFormatString(data_buf, IM_COUNTOF(data_buf), data_type, p_data, format);
+    ImStrTrimBlanks(data_buf);
+
+    ImGuiInputTextFlags flags = ImGuiInputTextFlags_AutoSelectAll | (ImGuiInputTextFlags)ImGuiInputTextFlags_LocalizeDecimalPoint;
+    g.LastItemData.ItemFlags |= ImGuiItemFlags_NoMarkEdited; // Because TempInputText() uses ImGuiInputTextFlags_MergedItem it doesn't submit a new item, so we poke LastItemData.
+    bool value_changed = false;
+    if (custom_TempInputText(bb, id, label, suffix, data_buf, IM_COUNTOF(data_buf), flags, label_pos, value_text_size))
+    {
+        // Backup old value
+        size_t data_type_size = type_info->Size;
+        ImGuiDataTypeStorage data_backup;
+        memcpy(&data_backup, p_data, data_type_size);
+
+        // Apply new value (or operations) then clamp
+        DataTypeApplyFromText(data_buf, data_type, p_data, format, NULL);
+        if (p_clamp_min || p_clamp_max)
+        {
+            if (p_clamp_min && p_clamp_max && DataTypeCompare(data_type, p_clamp_min, p_clamp_max) > 0)
+                ImSwap(p_clamp_min, p_clamp_max);
+            DataTypeClamp(data_type, p_data, p_clamp_min, p_clamp_max);
+        }
+
+        // Only mark as edited if new value is different
+        g.LastItemData.ItemFlags &= ~ImGuiItemFlags_NoMarkEdited;
+        value_changed = memcmp(&data_backup, p_data, data_type_size) != 0;
+        if (value_changed)
+            MarkItemEdited(id);
+    }
+    return value_changed;
+}
+
+//-------------------------------------------------------------------------
+// [SECTION] Widgets: InputText, InputTextMultiline, InputTextWithHint
+//-------------------------------------------------------------------------
+
+// Edit a string of text
+// - buf_size account for the zero-terminator, so a buf_size of 6 can hold "Hello" but not "Hello!".
+//   This is so we can easily call InputText() on static arrays using ARRAYSIZE() and to match
+//   Note that in std::string world, capacity() would omit 1 byte used by the zero-terminator.
+// - When active, hold on a privately held copy of the text (and apply back to 'buf'). So changing 'buf' while the InputText is active has no effect.
+// - If you want to use InputText() with std::string or any custom dynamic string type, use the wrapper in misc/cpp/imgui_stdlib.h/.cpp!
+bool ImGui::custom_InputTextEx(const char* label, const char* suffix, const char* hint, char* buf, int buf_size, const ImVec2& size_arg, ImGuiInputTextFlags flags, ImGuiInputTextCallback callback, void* callback_user_data, const ImVec2 value_text_pos, const ImVec2 value_text_size)
+{
+    ImGuiWindow* window = GetCurrentWindow();
+    if (window->SkipItems)
+        return false;
+
+    IM_ASSERT(buf != NULL && buf_size >= 0);
+    IM_ASSERT(!((flags & ImGuiInputTextFlags_CallbackHistory) && (flags & ImGuiInputTextFlags_Multiline)));        // Can't use both together (they both use up/down keys)
+    IM_ASSERT(!((flags & ImGuiInputTextFlags_CallbackCompletion) && (flags & ImGuiInputTextFlags_AllowTabInput))); // Can't use both together (they both use tab key)
+    IM_ASSERT(!((flags & ImGuiInputTextFlags_ElideLeft) && (flags & ImGuiInputTextFlags_Multiline)));              // Multiline does not not work with left-trimming
+    IM_ASSERT((flags & ImGuiInputTextFlags_WordWrap) == 0 || (flags & ImGuiInputTextFlags_Password) == 0);         // WordWrap does not work with Password mode.
+    IM_ASSERT((flags & ImGuiInputTextFlags_WordWrap) == 0 || (flags & ImGuiInputTextFlags_Multiline) != 0);        // WordWrap does not work in single-line mode.
+
+    ImGuiContext& g = *GImGui;
+    ImGuiIO& io = g.IO;
+    const ImGuiStyle& style = g.Style;
+
+    const bool RENDER_SELECTION_WHEN_INACTIVE = false;
+    const bool is_multiline = (flags & ImGuiInputTextFlags_Multiline) != 0;
+
+    if (is_multiline) // Open group before calling GetID() because groups tracks id created within their scope (including the scrollbar)
+        BeginGroup();
+    const ImGuiID id = window->GetID(label);
+    const ImVec2 label_size = CalcTextSize(label, NULL, true);
+    const ImVec2 frame_size = CalcItemSize(size_arg, CalcItemWidth(), (is_multiline ? g.FontSize * 8.0f : label_size.y) + style.FramePadding.y * 2.0f); // Arbitrary default of 8 lines high for multi-line
+    const ImVec2 total_size = ImVec2(frame_size.x + (label_size.x > 0.0f ? style.ItemInnerSpacing.x + label_size.x : 0.0f), frame_size.y);
+
+    const ImRect frame_bb(window->DC.CursorPos, window->DC.CursorPos + frame_size);
+    const ImRect value_text_frame_bb(value_text_pos, value_text_pos + value_text_size);
+    const ImRect total_bb(frame_bb.Min, frame_bb.Min + total_size);
+
+    ImGuiWindow* draw_window = window;
+    ImVec2 inner_size;
+    if(value_text_size != ImVec2())
+        inner_size = value_text_size;
+    else
+        inner_size = frame_size;
+
+    ImGuiLastItemData item_data_backup;
+    if (is_multiline)
+    {
+        ImVec2 backup_pos = window->DC.CursorPos;
+        ItemSize(total_bb, style.FramePadding.y);
+        if (!ItemAdd(total_bb, id, &frame_bb, ImGuiItemFlags_Inputable))
+        {
+            EndGroup();
+            return false;
+        }
+        item_data_backup = g.LastItemData;
+        window->DC.CursorPos = backup_pos;
+
+        // Prevent NavActivation from explicit Tabbing when our widget accepts Tab inputs: this allows cycling through widgets without stopping.
+        if (g.NavActivateId == id && (g.NavActivateFlags & ImGuiActivateFlags_FromTabbing) && !(g.NavActivateFlags & ImGuiActivateFlags_FromFocusApi) && (flags & ImGuiInputTextFlags_AllowTabInput))
+            g.NavActivateId = 0;
+
+        // Prevent NavActivate reactivating in BeginChild() when we are already active.
+        const ImGuiID backup_activate_id = g.NavActivateId;
+        if (g.ActiveId == id) // Prevent reactivation
+            g.NavActivateId = 0;
+
+        // We reproduce the contents of BeginChildFrame() in order to provide 'label' so our window internal data are easier to read/debug.
+        PushStyleColor(ImGuiCol_ChildBg, style.Colors[ImGuiCol_FrameBg]);
+        PushStyleVar(ImGuiStyleVar_ChildRounding, style.FrameRounding);
+        PushStyleVar(ImGuiStyleVar_ChildBorderSize, style.FrameBorderSize);
+        PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0)); // Ensure no clip rect so mouse hover can reach FramePadding edges
+        bool child_visible = BeginChildEx(label, id, frame_bb.GetSize(), ImGuiChildFlags_Borders, ImGuiWindowFlags_NoMove);
+        g.NavActivateId = backup_activate_id;
+        PopStyleVar(3);
+        PopStyleColor();
+        if (!child_visible)
+        {
+            EndChild();
+            EndGroup();
+            return false;
+        }
+        draw_window = g.CurrentWindow; // Child window
+        draw_window->DC.NavLayersActiveMaskNext |= (1 << draw_window->DC.NavLayerCurrent); // This is to ensure that EndChild() will display a navigation highlight so we can "enter" into it.
+        draw_window->DC.CursorPos += style.FramePadding;
+        inner_size.x -= draw_window->ScrollbarSizes.x;
+    }
+    else
+    {
+        // Support for internal ImGuiInputTextFlags_MergedItem flag, which could be redesigned as an ItemFlags if needed (with test performed in ItemAdd)
+        ItemSize(total_bb, style.FramePadding.y);
+        if (!(flags & ImGuiInputTextFlags_MergedItem))
+            if (!ItemAdd(total_bb, id, &frame_bb, ImGuiItemFlags_Inputable))
+                return false;
+    }
+
+    // Ensure mouse cursor is set even after switching to keyboard/gamepad mode. May generalize further? (#6417)
+    bool hovered = ItemHoverable(frame_bb, id, g.LastItemData.ItemFlags | ImGuiItemFlags_NoNavDisableMouseHover);
+    if (hovered)
+        SetMouseCursor(ImGuiMouseCursor_TextInput);
+    if (hovered && g.NavHighlightItemUnderNav)
+        hovered = false;
+
+    // We are only allowed to access the state if we are already the active widget.
+    ImGuiInputTextState* state = GetInputTextState(id);
+
+    if (g.LastItemData.ItemFlags & ImGuiItemFlags_ReadOnly)
+        flags |= ImGuiInputTextFlags_ReadOnly;
+    const bool is_readonly = (flags & ImGuiInputTextFlags_ReadOnly) != 0;
+    const bool is_password = (flags & ImGuiInputTextFlags_Password) != 0;
+    const bool is_undoable = (flags & ImGuiInputTextFlags_NoUndoRedo) == 0;
+    const bool is_resizable = (flags & ImGuiInputTextFlags_CallbackResize) != 0;
+    if (is_resizable)
+        IM_ASSERT(callback != NULL); // Must provide a callback if you set the ImGuiInputTextFlags_CallbackResize flag!
+
+    // Word-wrapping: enforcing a fixed width not altered by vertical scrollbar makes things easier, notably to track cursor reliably and avoid one-frame glitches.
+    // Instead of using ImGuiWindowFlags_AlwaysVerticalScrollbar we account for that space if the scrollbar is not visible.
+    const bool is_wordwrap = (flags & ImGuiInputTextFlags_WordWrap) != 0;
+    float wrap_width = 0.0f;
+    if (is_wordwrap)
+        wrap_width = ImMax(1.0f, GetContentRegionAvail().x + (draw_window->ScrollbarY ? 0.0f : -g.Style.ScrollbarSize));
+
+    const bool input_requested_by_nav = (g.ActiveId != id) && ((g.NavActivateId == id) && ((g.NavActivateFlags & ImGuiActivateFlags_PreferInput) || (g.NavInputSource == ImGuiInputSource_Keyboard)));
+
+    const bool user_clicked = hovered && io.MouseClicked[0];
+    const bool user_scroll_finish = is_multiline && state != NULL && g.ActiveId == 0 && g.ActiveIdPreviousFrame == GetWindowScrollbarID(draw_window, ImGuiAxis_Y);
+    const bool user_scroll_active = is_multiline && state != NULL && g.ActiveId == GetWindowScrollbarID(draw_window, ImGuiAxis_Y);
+    bool clear_active_id = false;
+    bool select_all = false;
+
+    float scroll_y = is_multiline ? draw_window->Scroll.y : FLT_MAX;
+
+    const bool init_reload_from_user_buf = (state != NULL && state->WantReloadUserBuf);
+    const bool init_changed_specs = (state != NULL && state->Stb->single_line != !is_multiline); // state != NULL means its our state.
+    const bool init_make_active = (user_clicked || user_scroll_finish || input_requested_by_nav);
+
+    const bool init_state = (init_make_active || user_scroll_active);
+    if (init_reload_from_user_buf)
+    {
+        int new_len = (int)ImStrlen(buf);
+        IM_ASSERT(new_len + 1 <= buf_size && "Is your input buffer properly zero-terminated?");
+        state->WantReloadUserBuf = false;
+        InputTextReconcileUndoState(state, state->TextA.Data, state->TextLen, buf, new_len);
+        state->TextA.resize(buf_size + 1); // we use +1 to make sure that .Data is always pointing to at least an empty string.
+        state->TextLen = new_len;
+        memcpy(state->TextA.Data, buf, state->TextLen + 1);
+        state->Stb->select_start = state->ReloadSelectionStart;
+        state->Stb->cursor = state->Stb->select_end = state->ReloadSelectionEnd; // will be clamped to bounds below
+    }
+    else if ((init_state && g.ActiveId != id) || init_changed_specs)
+    {
+        // Access state even if we don't own it yet.
+        state = &g.InputTextState;
+        state->CursorAnimReset();
+
+        // Backup state of deactivating item so they'll have a chance to do a write to output buffer on the same frame they report IsItemDeactivatedAfterEdit (#4714)
+        InputTextDeactivateHook(state->ID);
+
+        // Take a copy of the initial buffer value.
+        // From the moment we focused we are normally ignoring the content of 'buf' (unless we are in read-only mode)
+        const int buf_len = (int)ImStrlen(buf);
+        IM_ASSERT(((buf_len + 1 <= buf_size) || (buf_len == 0 && buf_size == 0)) && "Is your input buffer properly zero-terminated?");
+        state->TextToRevertTo.resize(buf_len + 1);    // UTF-8. we use +1 to make sure that .Data is always pointing to at least an empty string.
+        memcpy(state->TextToRevertTo.Data, buf, buf_len + 1);
+
+        // Preserve cursor position and undo/redo stack if we come back to same widget
+        // FIXME: Since we reworked this on 2022/06, may want to differentiate recycle_cursor vs recycle_undostate?
+        bool recycle_state = (state->ID == id && !init_changed_specs);
+        if (recycle_state && (state->TextLen != buf_len || (state->TextA.Data == NULL || strncmp(state->TextA.Data, buf, buf_len) != 0)))
+            recycle_state = false;
+
+        // Start edition
+        state->ID = id;
+        state->TextLen = buf_len;
+        if (!is_readonly)
+        {
+            state->TextA.resize(buf_size + 1); // we use +1 to make sure that .Data is always pointing to at least an empty string.
+            memcpy(state->TextA.Data, buf, state->TextLen + 1);
+        }
+
+        // Find initial scroll position for right alignment
+        state->Scroll = ImVec2(0.0f, 0.0f);
+        if (flags & ImGuiInputTextFlags_ElideLeft)
+            state->Scroll.x += ImMax(0.0f, CalcTextSize(buf).x - frame_size.x + style.FramePadding.x * 2.0f);
+
+        // Recycle existing cursor/selection/undo stack but clamp position
+        // Note a single mouse click will override the cursor/position immediately by calling stb_textedit_click handler.
+        if (!recycle_state)
+            stb_textedit_initialize_state(state->Stb, !is_multiline);
+
+        if (!is_multiline)
+        {
+            if (flags & ImGuiInputTextFlags_AutoSelectAll)
+                select_all = true;
+            if (input_requested_by_nav && (!recycle_state || !(g.NavActivateFlags & ImGuiActivateFlags_TryToPreserveState)))
+                select_all = true;
+            if (user_clicked && io.KeyCtrl)
+                select_all = true;
+        }
+
+        if (flags & ImGuiInputTextFlags_AlwaysOverwrite)
+            state->Stb->insert_mode = 1; // stb field name is indeed incorrect (see #2863)
+    }
+
+    const bool is_osx = io.ConfigMacOSXBehaviors;
+    if (g.ActiveId != id && init_make_active)
+    {
+        IM_ASSERT(state && state->ID == id);
+        SetActiveID(id, window);
+        SetFocusID(id, window);
+        FocusWindow(window);
+        if (input_requested_by_nav)
+            SetNavCursorVisibleAfterMove();
+    }
+    if (g.ActiveId == id)
+    {
+        // Declare some inputs, the other are registered and polled via Shortcut() routing system.
+        // FIXME: The reason we don't use Shortcut() is we would need a routing flag to specify multiple mods, or to all mods combination into individual shortcuts.
+        const ImGuiKey always_owned_keys[] = { ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_Delete, ImGuiKey_Backspace, ImGuiKey_Home, ImGuiKey_End };
+        for (ImGuiKey key : always_owned_keys)
+            SetKeyOwner(key, id);
+        if (user_clicked)
+            SetKeyOwner(ImGuiKey_MouseLeft, id);
+        g.ActiveIdUsingNavDirMask |= (1 << ImGuiDir_Left) | (1 << ImGuiDir_Right);
+        if (is_multiline || (flags & ImGuiInputTextFlags_CallbackHistory))
+        {
+            g.ActiveIdUsingNavDirMask |= (1 << ImGuiDir_Up) | (1 << ImGuiDir_Down);
+            SetKeyOwner(ImGuiKey_UpArrow, id);
+            SetKeyOwner(ImGuiKey_DownArrow, id);
+        }
+        if (is_multiline)
+        {
+            SetKeyOwner(ImGuiKey_PageUp, id);
+            SetKeyOwner(ImGuiKey_PageDown, id);
+        }
+        // FIXME: May be a problem to always steal Alt on OSX, would ideally still allow an uninterrupted Alt down-up to toggle menu
+        if (is_osx)
+            SetKeyOwner(ImGuiMod_Alt, id);
+
+        // Expose scroll in a manner that is agnostic to us using a child window
+        if (is_multiline && state != NULL)
+            state->Scroll.y = draw_window->Scroll.y;
+
+        // Read-only mode always ever read from source buffer. Refresh TextLen when active.
+        if (is_readonly && state != NULL)
+            state->TextLen = (int)ImStrlen(buf);
+        if (state != NULL)
+            state->CursorClamp();
+        //if (is_readonly && state != NULL)
+        //    state->TextA.clear(); // Uncomment to facilitate debugging, but we otherwise prefer to keep/amortize th allocation.
+    }
+    if (state != NULL)
+        state->TextSrc = is_readonly ? buf : state->TextA.Data;
+
+    // We have an edge case if ActiveId was set through another widget (e.g. widget being swapped), clear id immediately (don't wait until the end of the function)
+    if (g.ActiveId == id && state == NULL)
+        ClearActiveID();
+
+    // Release focus when we click outside
+    if (g.ActiveId == id && io.MouseClicked[0] && !init_state && !init_make_active) //-V560
+        clear_active_id = true;
+
+    // Lock the decision of whether we are going to take the path displaying the cursor or selection
+    bool render_cursor = (g.ActiveId == id) || (state && user_scroll_active);
+    bool render_selection = state && (state->HasSelection() || select_all) && (RENDER_SELECTION_WHEN_INACTIVE || render_cursor);
+    bool value_changed = false;
+    bool validated = false;
+
+    // Select the buffer to render.
+    const bool buf_display_from_state = (render_cursor || render_selection || g.ActiveId == id) && !is_readonly && state;
+    bool is_displaying_hint = (hint != NULL && (buf_display_from_state ? state->TextA.Data : buf)[0] == 0);
+
+    // Password pushes a temporary font with only a fallback glyph
+    if (is_password && !is_displaying_hint)
+        PushPasswordFont();
+
+    // Word-wrapping: attempt to keep cursor in view while resizing frame/parent
+    // FIXME-WORDWRAP: It would be better to preserve same relative offset.
+    if (is_wordwrap && state != NULL && state->ID == id && state->WrapWidth != wrap_width)
+    {
+        state->CursorCenterY = true;
+        state->WrapWidth = wrap_width;
+        render_cursor = true;
+    }
+
+    // Process mouse inputs and character inputs
+    if (g.ActiveId == id)
+    {
+        IM_ASSERT(state != NULL);
+        state->Edited = false;
+        state->BufCapacity = buf_size;
+        state->Flags = flags;
+        state->WrapWidth = wrap_width;
+
+        // Although we are active we don't prevent mouse from hovering other elements unless we are interacting right now with the widget.
+        // Down the line we should have a cleaner library-wide concept of Selected vs Active.
+        g.ActiveIdAllowOverlap = !io.MouseDown[0];
+
+        // Edit in progress
+        const float mouse_x = (io.MousePos.x - frame_bb.Min.x - style.FramePadding.x) + state->Scroll.x;
+        const float mouse_y = (is_multiline ? (io.MousePos.y - draw_window->DC.CursorPos.y) : (g.FontSize * 0.5f));
+
+        if (select_all)
+        {
+            state->SelectAll();
+            state->SelectedAllMouseLock = true;
+        }
+        else if (hovered && io.MouseClickedCount[0] >= 2 && !io.KeyShift)
+        {
+            stb_textedit_click(state, state->Stb, mouse_x, mouse_y);
+            const int multiclick_count = (io.MouseClickedCount[0] - 2);
+            if ((multiclick_count % 2) == 0)
+            {
+                // Double-click: Select word
+                // We always use the "Mac" word advance for double-click select vs Ctrl+Right which use the platform dependent variant:
+                // FIXME: There are likely many ways to improve this behavior, but there's no "right" behavior (depends on use-case, software, OS)
+                const bool is_bol = (state->Stb->cursor == 0) || ImStb::STB_TEXTEDIT_GETCHAR(state, state->Stb->cursor - 1) == '\n';
+                if (STB_TEXT_HAS_SELECTION(state->Stb) || !is_bol)
+                    state->OnKeyPressed(STB_TEXTEDIT_K_WORDLEFT);
+                //state->OnKeyPressed(STB_TEXTEDIT_K_WORDRIGHT | STB_TEXTEDIT_K_SHIFT);
+                if (!STB_TEXT_HAS_SELECTION(state->Stb))
+                    ImStb::stb_textedit_prep_selection_at_cursor(state->Stb);
+                state->Stb->cursor = ImStb::STB_TEXTEDIT_MOVEWORDRIGHT_MAC(state, state->Stb->cursor);
+                state->Stb->select_end = state->Stb->cursor;
+                ImStb::stb_textedit_clamp(state, state->Stb);
+            }
+            else
+            {
+                // Triple-click: Select line
+                const bool is_eol = ImStb::STB_TEXTEDIT_GETCHAR(state, state->Stb->cursor) == '\n';
+                state->WrapWidth = 0.0f; // Temporarily disable wrapping so we use real line start.
+                state->OnKeyPressed(STB_TEXTEDIT_K_LINESTART);
+                state->OnKeyPressed(STB_TEXTEDIT_K_LINEEND | STB_TEXTEDIT_K_SHIFT);
+                state->OnKeyPressed(STB_TEXTEDIT_K_RIGHT | STB_TEXTEDIT_K_SHIFT);
+                state->WrapWidth = wrap_width;
+                if (!is_eol && is_multiline)
+                {
+                    ImSwap(state->Stb->select_start, state->Stb->select_end);
+                    state->Stb->cursor = state->Stb->select_end;
+                }
+                state->CursorFollow = false;
+            }
+            state->CursorAnimReset();
+        }
+        else if (io.MouseClicked[0] && !state->SelectedAllMouseLock)
+        {
+            if (hovered)
+            {
+                if (io.KeyShift)
+                    stb_textedit_drag(state, state->Stb, mouse_x, mouse_y);
+                else
+                    stb_textedit_click(state, state->Stb, mouse_x, mouse_y);
+                state->CursorAnimReset();
+            }
+        }
+        else if (io.MouseDown[0] && !state->SelectedAllMouseLock && (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f))
+        {
+            stb_textedit_drag(state, state->Stb, mouse_x, mouse_y);
+            state->CursorAnimReset();
+            state->CursorFollow = true;
+        }
+        if (state->SelectedAllMouseLock && !io.MouseDown[0])
+            state->SelectedAllMouseLock = false;
+
+        // We expect backends to emit a Tab key but some also emit a Tab character which we ignore (#2467, #1336)
+        // (For Tab and Enter: Win32/SFML/Allegro are sending both keys and chars, GLFW and SDL are only sending keys. For Space they all send all threes)
+        if ((flags & ImGuiInputTextFlags_AllowTabInput) && !is_readonly)
+        {
+            if (Shortcut(ImGuiKey_Tab, ImGuiInputFlags_Repeat, id))
+            {
+                unsigned int c = '\t'; // Insert TAB
+                if (InputTextFilterCharacter(&g, state, &c, callback, callback_user_data))
+                    state->OnCharPressed(c);
+            }
+            // FIXME: Implement Shift+Tab
+            /*
+            if (Shortcut(ImGuiKey_Tab | ImGuiMod_Shift, ImGuiInputFlags_Repeat, id))
+            {
+            }
+            */
+        }
+
+        // Process regular text input (before we check for Return because using some IME will effectively send a Return?)
+        // We ignore Ctrl inputs, but need to allow Alt+Ctrl as some keyboards (e.g. German) use AltGR (which _is_ Alt+Ctrl) to input certain characters.
+        const bool ignore_char_inputs = (io.KeyCtrl && !io.KeyAlt) || (is_osx && io.KeyCtrl);
+        if (io.InputQueueCharacters.Size > 0)
+        {
+            if (!ignore_char_inputs && !is_readonly && !input_requested_by_nav)
+                for (int n = 0; n < io.InputQueueCharacters.Size; n++)
+                {
+                    // Insert character if they pass filtering
+                    unsigned int c = (unsigned int)io.InputQueueCharacters[n];
+                    if (c == '\t') // Skip Tab, see above.
+                        continue;
+                    if (InputTextFilterCharacter(&g, state, &c, callback, callback_user_data))
+                        state->OnCharPressed(c);
+                }
+
+            // Consume characters
+            io.InputQueueCharacters.resize(0);
+        }
+    }
+
+    // Process other shortcuts/key-presses
+    bool revert_edit = false;
+    if (g.ActiveId == id && !g.ActiveIdIsJustActivated && !clear_active_id)
+    {
+        IM_ASSERT(state != NULL);
+
+        const int row_count_per_page = ImMax((int)((inner_size.y - style.FramePadding.y) / g.FontSize), 1);
+        state->Stb->row_count_per_page = row_count_per_page;
+
+        const int k_mask = (io.KeyShift ? STB_TEXTEDIT_K_SHIFT : 0);
+        const bool is_wordmove_key_down = is_osx ? io.KeyAlt : io.KeyCtrl;                     // OS X style: Text editing cursor movement using Alt instead of Ctrl
+        const bool is_startend_key_down = is_osx && io.KeyCtrl && !io.KeySuper && !io.KeyAlt;  // OS X style: Line/Text Start and End using Cmd+Arrows instead of Home/End
+
+        // Using Shortcut() with ImGuiInputFlags_RouteFocused (default policy) to allow routing operations for other code (e.g. calling window trying to use Ctrl+A and Ctrl+B: former would be handled by InputText)
+        // Otherwise we could simply assume that we own the keys as we are active.
+        const ImGuiInputFlags f_repeat = ImGuiInputFlags_Repeat;
+        const bool is_cut   = (Shortcut(ImGuiMod_Ctrl | ImGuiKey_X, f_repeat, id) || Shortcut(ImGuiMod_Shift | ImGuiKey_Delete, f_repeat, id)) && !is_readonly && !is_password && (!is_multiline || state->HasSelection());
+        const bool is_copy  = (Shortcut(ImGuiMod_Ctrl | ImGuiKey_C, 0,        id) || Shortcut(ImGuiMod_Ctrl  | ImGuiKey_Insert, 0,        id)) && !is_password && (!is_multiline || state->HasSelection());
+        const bool is_paste = (Shortcut(ImGuiMod_Ctrl | ImGuiKey_V, f_repeat, id) || Shortcut(ImGuiMod_Shift | ImGuiKey_Insert, f_repeat, id)) && !is_readonly;
+        const bool is_undo  = (Shortcut(ImGuiMod_Ctrl | ImGuiKey_Z, f_repeat, id)) && !is_readonly && is_undoable;
+        const bool is_redo =  (Shortcut(ImGuiMod_Ctrl | ImGuiKey_Y, f_repeat, id) || Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, f_repeat, id)) && !is_readonly && is_undoable;
+        const bool is_select_all = Shortcut(ImGuiMod_Ctrl | ImGuiKey_A, 0, id);
+
+        // We allow validate/cancel with Nav source (gamepad) to makes it easier to undo an accidental NavInput press with no keyboard wired, but otherwise it isn't very useful.
+        const bool nav_gamepad_active = (io.ConfigFlags & ImGuiConfigFlags_NavEnableGamepad) != 0 && (io.BackendFlags & ImGuiBackendFlags_HasGamepad) != 0;
+        const bool is_enter = Shortcut(ImGuiKey_Enter, f_repeat, id) || Shortcut(ImGuiKey_KeypadEnter, f_repeat, id);
+        const bool is_ctrl_enter = Shortcut(ImGuiMod_Ctrl | ImGuiKey_Enter, f_repeat, id) || Shortcut(ImGuiMod_Ctrl | ImGuiKey_KeypadEnter, f_repeat, id);
+        const bool is_gamepad_validate = nav_gamepad_active && (IsKeyPressed(ImGuiKey_NavGamepadActivate, false) || IsKeyPressed(ImGuiKey_NavGamepadInput, false));
+        const bool is_cancel = Shortcut(ImGuiKey_Escape, f_repeat, id) || (nav_gamepad_active && Shortcut(ImGuiKey_NavGamepadCancel, f_repeat, id));
+
+        // FIXME: Should use more Shortcut() and reduce IsKeyPressed()+SetKeyOwner(), but requires modifiers combination to be taken account of.
+        // FIXME-OSX: Missing support for Alt(option)+Right/Left = go to end of line, or next line if already in end of line.
+        if (IsKeyPressed(ImGuiKey_LeftArrow))                        { state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_LINESTART : is_wordmove_key_down ? STB_TEXTEDIT_K_WORDLEFT : STB_TEXTEDIT_K_LEFT) | k_mask); }
+        else if (IsKeyPressed(ImGuiKey_RightArrow))                  { state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_LINEEND : is_wordmove_key_down ? STB_TEXTEDIT_K_WORDRIGHT : STB_TEXTEDIT_K_RIGHT) | k_mask); }
+        else if (IsKeyPressed(ImGuiKey_UpArrow) && is_multiline)     { if (io.KeyCtrl) SetScrollY(draw_window, ImMax(draw_window->Scroll.y - g.FontSize, 0.0f)); else state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_TEXTSTART : STB_TEXTEDIT_K_UP) | k_mask); }
+        else if (IsKeyPressed(ImGuiKey_DownArrow) && is_multiline)   { if (io.KeyCtrl) SetScrollY(draw_window, ImMin(draw_window->Scroll.y + g.FontSize, GetScrollMaxY())); else state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_TEXTEND : STB_TEXTEDIT_K_DOWN) | k_mask); }
+        else if (IsKeyPressed(ImGuiKey_PageUp) && is_multiline)      { state->OnKeyPressed(STB_TEXTEDIT_K_PGUP | k_mask); scroll_y -= row_count_per_page * g.FontSize; }
+        else if (IsKeyPressed(ImGuiKey_PageDown) && is_multiline)    { state->OnKeyPressed(STB_TEXTEDIT_K_PGDOWN | k_mask); scroll_y += row_count_per_page * g.FontSize; }
+        else if (IsKeyPressed(ImGuiKey_Home))                        { state->OnKeyPressed(io.KeyCtrl ? STB_TEXTEDIT_K_TEXTSTART | k_mask : STB_TEXTEDIT_K_LINESTART | k_mask); }
+        else if (IsKeyPressed(ImGuiKey_End))                         { state->OnKeyPressed(io.KeyCtrl ? STB_TEXTEDIT_K_TEXTEND | k_mask : STB_TEXTEDIT_K_LINEEND | k_mask); }
+        else if (IsKeyPressed(ImGuiKey_Delete) && !is_readonly && !is_cut)
+        {
+            if (!state->HasSelection())
+            {
+                // OSX doesn't seem to have Super+Delete to delete until end-of-line, so we don't emulate that (as opposed to Super+Backspace)
+                if (is_wordmove_key_down)
+                    state->OnKeyPressed(STB_TEXTEDIT_K_WORDRIGHT | STB_TEXTEDIT_K_SHIFT);
+            }
+            state->OnKeyPressed(STB_TEXTEDIT_K_DELETE | k_mask);
+        }
+        else if (IsKeyPressed(ImGuiKey_Backspace) && !is_readonly)
+        {
+            if (!state->HasSelection())
+            {
+                if (is_wordmove_key_down)
+                    state->OnKeyPressed(STB_TEXTEDIT_K_WORDLEFT | STB_TEXTEDIT_K_SHIFT);
+                else if (is_osx && io.KeyCtrl && !io.KeyAlt && !io.KeySuper)
+                    state->OnKeyPressed(STB_TEXTEDIT_K_LINESTART | STB_TEXTEDIT_K_SHIFT);
+            }
+            state->OnKeyPressed(STB_TEXTEDIT_K_BACKSPACE | k_mask);
+        }
+        else if (is_enter || is_ctrl_enter || is_gamepad_validate)
+        {
+            // Determine if we turn Enter into a \n character
+            bool ctrl_enter_for_new_line = (flags & ImGuiInputTextFlags_CtrlEnterForNewLine) != 0;
+            if (!is_multiline || is_gamepad_validate || (ctrl_enter_for_new_line != is_ctrl_enter))
+            {
+                validated = true;
+                if (io.ConfigInputTextEnterKeepActive && !is_multiline)
+                    state->SelectAll(); // No need to scroll
+                else
+                    clear_active_id = true;
+            }
+            else if (!is_readonly)
+            {
+                // Insert new line
+                unsigned int c = '\n';
+                if (InputTextFilterCharacter(&g, state, &c, callback, callback_user_data))
+                    state->OnCharPressed(c);
+            }
+        }
+        else if (is_cancel)
+        {
+            if (flags & ImGuiInputTextFlags_EscapeClearsAll)
+            {
+                if (state->TextA.Data[0] != 0)
+                {
+                    revert_edit = true;
+                }
+                else
+                {
+                    render_cursor = render_selection = false;
+                    clear_active_id = true;
+                }
+            }
+            else
+            {
+                clear_active_id = revert_edit = true;
+                render_cursor = render_selection = false;
+            }
+        }
+        else if (is_undo || is_redo)
+        {
+            state->OnKeyPressed(is_undo ? STB_TEXTEDIT_K_UNDO : STB_TEXTEDIT_K_REDO);
+            state->ClearSelection();
+        }
+        else if (is_select_all)
+        {
+            state->SelectAll();
+            state->CursorFollow = true;
+        }
+        else if (is_cut || is_copy)
+        {
+            // Cut, Copy
+            if (g.PlatformIO.Platform_SetClipboardTextFn != NULL)
+            {
+                // SetClipboardText() only takes null terminated strings + state->TextSrc may point to read-only user buffer, so we need to make a copy.
+                const int ib = state->HasSelection() ? ImMin(state->Stb->select_start, state->Stb->select_end) : 0;
+                const int ie = state->HasSelection() ? ImMax(state->Stb->select_start, state->Stb->select_end) : state->TextLen;
+                g.TempBuffer.reserve(ie - ib + 1);
+                memcpy(g.TempBuffer.Data, state->TextSrc + ib, ie - ib);
+                g.TempBuffer.Data[ie - ib] = 0;
+                SetClipboardText(g.TempBuffer.Data);
+            }
+            if (is_cut)
+            {
+                if (!state->HasSelection())
+                    state->SelectAll();
+                state->CursorFollow = true;
+                stb_textedit_cut(state, state->Stb);
+            }
+        }
+        else if (is_paste)
+        {
+            if (const char* clipboard = GetClipboardText())
+            {
+                // Filter pasted buffer
+                const int clipboard_len = (int)ImStrlen(clipboard);
+                const char* clipboard_end = clipboard + clipboard_len;
+                ImVector<char> clipboard_filtered;
+                clipboard_filtered.reserve(clipboard_len + 1);
+                for (const char* s = clipboard; *s != 0; )
+                {
+                    unsigned int c;
+                    int in_len = ImTextCharFromUtf8(&c, s, clipboard_end);
+                    s += in_len;
+                    if (!InputTextFilterCharacter(&g, state, &c, callback, callback_user_data, true))
+                        continue;
+                    char c_utf8[5];
+                    ImTextCharToUtf8(c_utf8, c);
+                    int out_len = (int)ImStrlen(c_utf8);
+                    clipboard_filtered.resize(clipboard_filtered.Size + out_len);
+                    memcpy(clipboard_filtered.Data + clipboard_filtered.Size - out_len, c_utf8, out_len);
+                }
+                if (clipboard_filtered.Size > 0) // If everything was filtered, ignore the pasting operation
+                {
+                    clipboard_filtered.push_back(0);
+                    stb_textedit_paste(state, state->Stb, clipboard_filtered.Data, clipboard_filtered.Size - 1);
+                    state->CursorFollow = true;
+                }
+            }
+        }
+
+        // Update render selection flag after events have been handled, so selection highlight can be displayed during the same frame.
+        render_selection |= state->HasSelection() && (RENDER_SELECTION_WHEN_INACTIVE || render_cursor);
+    }
+
+    // Process callbacks and apply result back to user's buffer.
+    const char* apply_new_text = NULL;
+    int apply_new_text_length = 0;
+    if (g.ActiveId == id)
+    {
+        IM_ASSERT(state != NULL);
+        if (revert_edit && !is_readonly)
+        {
+            if (flags & ImGuiInputTextFlags_EscapeClearsAll)
+            {
+                // Clear input
+                IM_ASSERT(state->TextA.Data[0] != 0);
+                apply_new_text = "";
+                apply_new_text_length = 0;
+                value_changed = true;
+                char empty_string = 0;
+                stb_textedit_replace(state, state->Stb, &empty_string, 0);
+            }
+            else if (strcmp(state->TextA.Data, state->TextToRevertTo.Data) != 0)
+            {
+                apply_new_text = state->TextToRevertTo.Data;
+                apply_new_text_length = state->TextToRevertTo.Size - 1;
+
+                // Restore initial value. Only return true if restoring to the initial value changes the current buffer contents.
+                // Push records into the undo stack so we can Ctrl+Z the revert operation itself
+                value_changed = true;
+                stb_textedit_replace(state, state->Stb, state->TextToRevertTo.Data, state->TextToRevertTo.Size - 1);
+            }
+        }
+
+        // FIXME-OPT: We always reapply the live buffer back to the input buffer before clearing ActiveId,
+        // even though strictly speaking it wasn't modified on this frame. Should mark dirty state from the stb_textedit callbacks.
+        // If we do that, need to ensure that as special case, 'validated == true' also writes back.
+        // This also allows the user to use InputText() without maintaining any user-side storage.
+        // (please note that if you use this property along ImGuiInputTextFlags_CallbackResize you can end up with your temporary string object
+        // unnecessarily allocating once a frame, either store your string data, either if you don't then don't use ImGuiInputTextFlags_CallbackResize).
+        const bool apply_edit_back_to_user_buffer = true;// !revert_edit || (validated && (flags & ImGuiInputTextFlags_EnterReturnsTrue) != 0);
+        if (apply_edit_back_to_user_buffer)
+        {
+            // Apply current edited text immediately.
+            // Note that as soon as the input box is active, the in-widget value gets priority over any underlying modification of the input buffer
+
+            // User callback
+            if ((flags & (ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackHistory | ImGuiInputTextFlags_CallbackEdit | ImGuiInputTextFlags_CallbackAlways)) != 0)
+            {
+                IM_ASSERT(callback != NULL);
+
+                // The reason we specify the usage semantic (Completion/History) is that Completion needs to disable keyboard TABBING at the moment.
+                ImGuiInputTextFlags event_flag = 0;
+                ImGuiKey event_key = ImGuiKey_None;
+                if ((flags & ImGuiInputTextFlags_CallbackCompletion) != 0 && Shortcut(ImGuiKey_Tab, 0, id))
+                {
+                    event_flag = ImGuiInputTextFlags_CallbackCompletion;
+                    event_key = ImGuiKey_Tab;
+                }
+                else if ((flags & ImGuiInputTextFlags_CallbackHistory) != 0 && IsKeyPressed(ImGuiKey_UpArrow))
+                {
+                    event_flag = ImGuiInputTextFlags_CallbackHistory;
+                    event_key = ImGuiKey_UpArrow;
+                }
+                else if ((flags & ImGuiInputTextFlags_CallbackHistory) != 0 && IsKeyPressed(ImGuiKey_DownArrow))
+                {
+                    event_flag = ImGuiInputTextFlags_CallbackHistory;
+                    event_key = ImGuiKey_DownArrow;
+                }
+                else if ((flags & ImGuiInputTextFlags_CallbackEdit) && state->Edited)
+                {
+                    event_flag = ImGuiInputTextFlags_CallbackEdit;
+                }
+                else if (flags & ImGuiInputTextFlags_CallbackAlways)
+                {
+                    event_flag = ImGuiInputTextFlags_CallbackAlways;
+                }
+
+                if (event_flag)
+                {
+                    ImGuiInputTextCallbackData callback_data;
+                    callback_data.Ctx = &g;
+                    callback_data.ID = id;
+                    callback_data.Flags = flags;
+                    callback_data.EventFlag = event_flag;
+                    callback_data.EventActivated = (g.ActiveId == state->ID && g.ActiveIdIsJustActivated);
+                    callback_data.UserData = callback_user_data;
+
+                    // FIXME-OPT: Undo stack reconcile needs a backup of the data until we rework API, see #7925
+                    char* callback_buf = is_readonly ? buf : state->TextA.Data;
+                    IM_ASSERT(callback_buf == state->TextSrc);
+                    state->CallbackTextBackup.resize(state->TextLen + 1);
+                    memcpy(state->CallbackTextBackup.Data, callback_buf, state->TextLen + 1);
+
+                    callback_data.EventKey = event_key;
+                    callback_data.Buf = callback_buf;
+                    callback_data.BufTextLen = state->TextLen;
+                    callback_data.BufSize = state->BufCapacity;
+                    callback_data.BufDirty = false;
+                    callback_data.CursorPos = state->Stb->cursor;
+                    callback_data.SelectionStart = state->Stb->select_start;
+                    callback_data.SelectionEnd = state->Stb->select_end;
+
+                    // Call user code
+                    callback(&callback_data);
+
+                    // Read back what user may have modified
+                    callback_buf = is_readonly ? buf : state->TextA.Data; // Pointer may have been invalidated by a resize callback
+                    IM_ASSERT(callback_data.Buf == callback_buf);         // Invalid to modify those fields
+                    IM_ASSERT(callback_data.BufSize == state->BufCapacity);
+                    IM_ASSERT(callback_data.Flags == flags);
+                    if (callback_data.BufDirty || callback_data.CursorPos != state->Stb->cursor)
+                        state->CursorFollow = true;
+                    state->Stb->cursor = ImClamp(callback_data.CursorPos, 0, callback_data.BufTextLen);
+                    state->Stb->select_start = ImClamp(callback_data.SelectionStart, 0, callback_data.BufTextLen);
+                    state->Stb->select_end = ImClamp(callback_data.SelectionEnd, 0, callback_data.BufTextLen);
+                    if (callback_data.BufDirty)
+                    {
+                        // Callback may update buffer and thus set buf_dirty even in read-only mode.
+                        IM_ASSERT(callback_data.BufTextLen == (int)ImStrlen(callback_data.Buf)); // You need to maintain BufTextLen if you change the text!
+                        InputTextReconcileUndoState(state, state->CallbackTextBackup.Data, state->CallbackTextBackup.Size - 1, callback_data.Buf, callback_data.BufTextLen);
+                        state->TextLen = callback_data.BufTextLen;  // Assume correct length and valid UTF-8 from user, saves us an extra strlen()
+                        state->CursorAnimReset();
+                    }
+                }
+            }
+
+            // Will copy result string if modified
+            if (!is_readonly && strcmp(state->TextSrc, buf) != 0)
+            {
+                apply_new_text = state->TextSrc;
+                apply_new_text_length = state->TextLen;
+                value_changed = true;
+            }
+        }
+    }
+
+    // Handle reapplying final data on deactivation (see InputTextDeactivateHook() for details)
+    if (g.InputTextDeactivatedState.ID == id)
+    {
+        if (g.ActiveId != id && IsItemDeactivatedAfterEdit() && !is_readonly && strcmp(g.InputTextDeactivatedState.TextA.Data, buf) != 0)
+        {
+            apply_new_text = g.InputTextDeactivatedState.TextA.Data;
+            apply_new_text_length = g.InputTextDeactivatedState.TextA.Size - 1;
+            value_changed = true;
+            //IMGUI_DEBUG_LOG("InputText(): apply Deactivated data for 0x%08X: \"%.*s\".\n", id, apply_new_text_length, apply_new_text);
+        }
+        g.InputTextDeactivatedState.ID = 0;
+    }
+
+    // Copy result to user buffer. This can currently only happen when (g.ActiveId == id)
+    if (apply_new_text != NULL)
+    {
+        //// We cannot test for 'backup_current_text_length != apply_new_text_length' here because we have no guarantee that the size
+        //// of our owned buffer matches the size of the string object held by the user, and by design we allow InputText() to be used
+        //// without any storage on user's side.
+        IM_ASSERT(apply_new_text_length >= 0);
+        if (is_resizable)
+        {
+            ImGuiInputTextCallbackData callback_data;
+            callback_data.Ctx = &g;
+            callback_data.ID = id;
+            callback_data.Flags = flags;
+            callback_data.EventFlag = ImGuiInputTextFlags_CallbackResize;
+            callback_data.EventActivated = (g.ActiveId == state->ID && g.ActiveIdIsJustActivated);
+            callback_data.Buf = buf;
+            callback_data.BufTextLen = apply_new_text_length;
+            callback_data.BufSize = ImMax(buf_size, apply_new_text_length + 1);
+            callback_data.UserData = callback_user_data;
+            callback(&callback_data);
+            buf = callback_data.Buf;
+            buf_size = callback_data.BufSize;
+            apply_new_text_length = ImMin(callback_data.BufTextLen, buf_size - 1);
+            IM_ASSERT(apply_new_text_length <= buf_size);
+        }
+        //IMGUI_DEBUG_PRINT("InputText(\"%s\"): apply_new_text length %d\n", label, apply_new_text_length);
+
+        // If the underlying buffer resize was denied or not carried to the next frame, apply_new_text_length+1 may be >= buf_size.
+        ImStrncpy(buf, apply_new_text, ImMin(apply_new_text_length + 1, buf_size));
+    }
+
+    // Release active ID at the end of the function (so e.g. pressing Return still does a final application of the value)
+    // Otherwise request text input ahead for next frame.
+    if (g.ActiveId == id && clear_active_id)
+        ClearActiveID();
+
+    ImVec2 draw_pos;
+    if (!is_multiline)
+    {
+        RenderNavCursor(frame_bb, id);
+        RenderFrame(frame_bb.Min, frame_bb.Max, GetColorU32(ImGuiCol_FrameBg), true, style.FrameRounding);
+    }
+    if(value_text_pos != ImVec2()) {
+        draw_pos = value_text_pos;
+    } else {
+        draw_pos = is_multiline ? draw_window->DC.CursorPos : frame_bb.Min + style.FramePadding;
+    }
+
+    ImVec2 text_size(0.0f, 0.0f);
+    ImVec2 clip_rect_min;
+    ImVec2 clip_rect_max;
+    if(value_text_pos == ImVec2()) {
+        clip_rect_min = frame_bb.Min;
+        clip_rect_max = frame_bb.Min + inner_size;
+    } else {
+        clip_rect_min = value_text_frame_bb.Min;
+        clip_rect_max = value_text_frame_bb.Max;
+    }
+    ImRect clip_rect(clip_rect_min, clip_rect_max);
+// brentfpage: commented out the line below to accommodate having the value text outside of the slider.  Should instead adjust the line to preserve as much of the original functionality as possible
+//         ImRect clip_rect(frame_bb.Min.x, frame_bb.Min.y, frame_bb.Min.x + inner_size.x, frame_bb.Min.y + inner_size.y); // Not using frame_bb.Max because we have adjusted size
+    if (is_multiline)
+        clip_rect.ClipWith(draw_window->ClipRect);
+
+    // Set upper limit of single-line InputTextEx() at 2 million characters strings. The current pathological worst case is a long line
+    // without any carriage return, which would makes ImFont::RenderText() reserve too many vertices and probably crash. Avoid it altogether.
+    // Note that we only use this limit on single-line InputText(), so a pathologically large line on a InputTextMultiline() would still crash.
+    const int buf_display_max_length = 2 * 1024 * 1024;
+    const char* buf_display = buf_display_from_state ? state->TextA.Data : buf; //-V595
+    const char* buf_display_end = NULL; // We have specialized paths below for setting the length
+
+    // Display hint when contents is empty
+    // At this point we need to handle the possibility that a callback could have modified the underlying buffer (#8368)
+    const bool new_is_displaying_hint = (hint != NULL && (buf_display_from_state ? state->TextA.Data : buf)[0] == 0);
+    if (new_is_displaying_hint != is_displaying_hint)
+    {
+        if (is_password && !is_displaying_hint)
+            PopPasswordFont();
+        is_displaying_hint = new_is_displaying_hint;
+        if (is_password && !is_displaying_hint)
+            PushPasswordFont();
+    }
+    if (is_displaying_hint)
+    {
+        buf_display = hint;
+        buf_display_end = hint + ImStrlen(hint);
+    }
+    else
+    {
+        if (render_cursor || render_selection || g.ActiveId == id)
+            buf_display_end = buf_display + state->TextLen; //-V595
+        else if (is_multiline && !is_wordwrap)
+            buf_display_end = NULL; // Inactive multi-line: end of buffer will be output by InputTextLineIndexBuild() special strchr() path.
+        else
+            buf_display_end = buf_display + ImStrlen(buf_display);
+    }
+
+    // Calculate visibility
+    int line_visible_n0 = 0, line_visible_n1 = 1;
+    if (is_multiline)
+        CalcClipRectVisibleItemsY(clip_rect, draw_pos, g.FontSize, &line_visible_n0, &line_visible_n1);
+
+    // Build line index for easy data access (makes code below simpler and faster)
+    ImGuiTextIndex* line_index = &g.InputTextLineIndex;
+    line_index->Offsets.resize(0);
+    int line_count = 1;
+    if (is_multiline)
+    {
+        // If scrolling is expected to change build full index.
+        // FIXME-OPT: Could append to index when new value of line_visible_n1 becomes bigger, see second call to CalcClipRectVisibleItemsY() below.
+        bool will_scroll_y = state && ((state->CursorFollow && render_cursor) || (state->CursorCenterY && (render_cursor || render_selection)));
+        line_count = InputTextLineIndexBuild(flags, line_index, buf_display, buf_display_end, wrap_width, will_scroll_y ? INT_MAX : line_visible_n1 + 1, buf_display_end ? NULL : &buf_display_end);
+    }
+    line_index->EndOffset = (int)(buf_display_end - buf_display);
+    line_visible_n1 = ImMin(line_visible_n1, line_count);
+
+    // Store text height (we don't need width)
+    text_size = ImVec2(inner_size.x, line_count * g.FontSize);
+    //GetForegroundDrawList()->AddRect(draw_pos + ImVec2(0, line_visible_n0 * g.FontSize), draw_pos + ImVec2(frame_size.x, line_visible_n1 * g.FontSize), IM_COL32(255, 0, 0, 255));
+
+    // Calculate blinking cursor position
+    const ImVec2 cursor_offset = render_cursor && state ? InputTextLineIndexGetPosOffset(g, state, line_index, buf_display, buf_display_end, state->Stb->cursor) : ImVec2(0.0f, 0.0f);
+    ImVec2 draw_scroll;
+
+    // Render text. We currently only render selection when the widget is active or while scrolling.
+    const ImU32 text_col = GetColorU32(is_displaying_hint ? ImGuiCol_TextDisabled : ImGuiCol_Text);
+    if (render_cursor || render_selection)
+    {
+        // Render text (with cursor and selection)
+        // This is going to be messy. We need to:
+        // - Display the text (this alone can be more easily clipped)
+        // - Handle scrolling, highlight selection, display cursor (those all requires some form of 1d->2d cursor position calculation)
+        // - Measure text height (for scrollbar)
+        // We are attempting to do most of that in **one main pass** to minimize the computation cost (non-negligible for large amount of text) + 2nd pass for selection rendering (we could merge them by an extra refactoring effort)
+        // FIXME: This should occur on buf_display but we'd need to maintain cursor/select_start/select_end for UTF-8.
+        IM_ASSERT(state != NULL);
+        state->LineCount = line_count;
+
+        // Scroll
+        float new_scroll_y = scroll_y;
+        if (render_cursor && state->CursorFollow)
+        {
+            // Horizontal scroll in chunks of quarter width
+            if (!(flags & ImGuiInputTextFlags_NoHorizontalScroll))
+            {
+                const float scroll_increment_x = inner_size.x * 0.25f;
+                const float visible_width = inner_size.x - style.FramePadding.x - CalcTextSize(suffix,NULL).x - style.FramePadding.x;
+                if (cursor_offset.x < state->Scroll.x)
+                    state->Scroll.x = IM_TRUNC(ImMax(0.0f, cursor_offset.x - scroll_increment_x));
+                else if (cursor_offset.x - visible_width >= state->Scroll.x)
+                    state->Scroll.x = IM_TRUNC(cursor_offset.x - visible_width + scroll_increment_x);
+            }
+            else
+            {
+                state->Scroll.x = 0.0f;
+            }
+
+            // Vertical scroll
+            if (is_multiline)
+            {
+                // Test if cursor is vertically visible
+                if (cursor_offset.y - g.FontSize < scroll_y)
+                    new_scroll_y = ImMax(0.0f, cursor_offset.y - g.FontSize);
+                else if (cursor_offset.y - (inner_size.y - style.FramePadding.y * 2.0f) >= scroll_y)
+                    new_scroll_y = cursor_offset.y - inner_size.y + style.FramePadding.y * 2.0f;
+            }
+            state->CursorFollow = false;
+        }
+        if (state->CursorCenterY)
+        {
+            if (is_multiline)
+                new_scroll_y = cursor_offset.y - g.FontSize - (inner_size.y * 0.5f - style.FramePadding.y);
+            state->CursorCenterY = false;
+            render_cursor = false;
+        }
+        if (new_scroll_y != scroll_y)
+        {
+            const float scroll_max_y = ImMax((text_size.y + style.FramePadding.y * 2.0f) - inner_size.y, 0.0f);
+            scroll_y = ImClamp(new_scroll_y, 0.0f, scroll_max_y);
+            draw_pos.y += (draw_window->Scroll.y - scroll_y);   // Manipulate cursor pos immediately avoid a frame of lag
+            draw_window->Scroll.y = scroll_y;
+            CalcClipRectVisibleItemsY(clip_rect, draw_pos, g.FontSize, &line_visible_n0, &line_visible_n1);
+            line_visible_n1 = ImMin(line_visible_n1, line_count);
+        }
+
+        // Draw selection
+        draw_scroll.x = state->Scroll.x;
+        if (render_selection)
+        {
+            const ImU32 bg_color = GetColorU32(ImGuiCol_TextSelectedBg, render_cursor ? 1.0f : 0.6f); // FIXME: current code flow mandate that render_cursor is always true here, we are leaving the transparent one for tests.
+            const float bg_offy_up = is_multiline ? 0.0f : -1.0f;    // FIXME: those offsets should be part of the style? they don't play so well with multi-line selection.
+            const float bg_offy_dn = is_multiline ? 0.0f : 2.0f;
+            const float bg_eol_width = IM_TRUNC(g.FontBaked->GetCharAdvance((ImWchar)' ') * 0.50f); // So we can see selected empty lines
+
+            const char* text_selected_begin = buf_display + ImMin(state->Stb->select_start, state->Stb->select_end);
+            const char* text_selected_end = buf_display + ImMax(state->Stb->select_start, state->Stb->select_end);
+            for (int line_n = line_visible_n0; line_n < line_visible_n1; line_n++)
+            {
+                const char* p = line_index->get_line_begin(buf_display, line_n);
+                const char* p_eol = line_index->get_line_end(buf_display, line_n);
+                const bool p_eol_is_wrap = (p_eol < buf_display_end && *p_eol != '\n');
+                if (p_eol_is_wrap)
+                    p_eol++;
+                const char* line_selected_begin = (text_selected_begin > p) ? text_selected_begin : p;
+                const char* line_selected_end = (text_selected_end < p_eol) ? text_selected_end : p_eol;
+
+                float rect_width = 0.0f;
+                if (line_selected_begin < line_selected_end)
+                    rect_width += CalcTextSize(line_selected_begin, line_selected_end).x;
+                if (text_selected_begin <= p_eol && text_selected_end > p_eol && !p_eol_is_wrap)
+                    rect_width += bg_eol_width; // So we can see selected empty lines
+                if (rect_width == 0.0f)
+                    continue;
+
+                ImRect rect;
+                rect.Min.x = draw_pos.x - draw_scroll.x + CalcTextSize(p, line_selected_begin).x;
+                rect.Min.y = draw_pos.y - draw_scroll.y + line_n * g.FontSize;
+                rect.Max.x = rect.Min.x + rect_width;
+                rect.Max.y = rect.Min.y + bg_offy_dn + g.FontSize;
+                rect.Min.y -= bg_offy_up;
+//                 rect.ClipWith(clip_rect);
+                draw_window->DrawList->AddRectFilled(rect.Min, rect.Max, bg_color);
+            }
+        }
+    }
+
+    // Find render position for right alignment (single-line only)
+    if (g.ActiveId != id && flags & ImGuiInputTextFlags_ElideLeft)
+        draw_pos.x = ImMin(draw_pos.x, value_text_frame_bb.Max.x - CalcTextSize(buf_display, NULL).x - style.FramePadding.x);
+    //draw_scroll.x = state->Scroll.x; // Preserve scroll when inactive?
+
+    // Render text
+    if ((is_multiline || (buf_display_end - buf_display) < buf_display_max_length) && (text_col & IM_COL32_A_MASK) && (line_visible_n0 < line_visible_n1))
+        g.Font->RenderText(draw_window->DrawList, g.FontSize,
+            draw_pos - draw_scroll + ImVec2(0.0f, line_visible_n0 * g.FontSize),
+            text_col, clip_rect.AsVec4(),
+            line_index->get_line_begin(buf_display, line_visible_n0),
+            line_index->get_line_end(buf_display, line_visible_n1 - 1),
+            wrap_width, ImDrawTextFlags_WrapKeepBlanks | ImDrawTextFlags_CpuFineClip);
+
+    // Render blinking cursor
+    if (render_cursor)
+    {
+        state->CursorAnim += io.DeltaTime;
+        bool cursor_is_visible = (!g.IO.ConfigInputTextCursorBlink) || (state->CursorAnim <= 0.0f) || ImFmod(state->CursorAnim, 1.20f) <= 0.80f;
+        ImVec2 cursor_screen_pos = ImTrunc(draw_pos + cursor_offset - draw_scroll);
+        ImRect cursor_screen_rect(cursor_screen_pos.x, cursor_screen_pos.y - g.FontSize + 0.5f, cursor_screen_pos.x + 1.0f, cursor_screen_pos.y - 1.5f);
+        if (cursor_is_visible && cursor_screen_rect.Overlaps(clip_rect))
+            draw_window->DrawList->AddLine(cursor_screen_rect.Min, cursor_screen_rect.GetBL(), GetColorU32(ImGuiCol_InputTextCursor), 1.0f); // FIXME-DPI: Cursor thickness (#7031)
+
+        // Notify OS of text input position for advanced IME (-1 x offset so that Windows IME can cover our cursor. Bit of an extra nicety.)
+        // This is required for some backends (SDL3) to start emitting character/text inputs.
+        // As per #6341, make sure we don't set that on the deactivating frame.
+        if (!is_readonly && g.ActiveId == id)
+        {
+            ImGuiPlatformImeData* ime_data = &g.PlatformImeData; // (this is a public struct, passed to io.Platform_SetImeDataFn() handler)
+            ime_data->WantVisible = true;
+            ime_data->WantTextInput = true;
+            ime_data->InputPos = ImVec2(cursor_screen_pos.x - 1.0f, cursor_screen_pos.y - g.FontSize);
+            ime_data->InputLineHeight = g.FontSize;
+            ime_data->ViewportId = window->Viewport->ID;
+        }
+    }
+
+    if (is_password && !is_displaying_hint)
+        PopPasswordFont();
+
+    if (is_multiline)
+    {
+        // For focus requests to work on our multiline we need to ensure our child ItemAdd() call specifies the ImGuiItemFlags_Inputable (see #4761, #7870)...
+        Dummy(ImVec2(text_size.x, text_size.y + style.FramePadding.y));
+        g.NextItemData.ItemFlags |= (ImGuiItemFlags)ImGuiItemFlags_Inputable | ImGuiItemFlags_NoTabStop;
+        EndChild();
+        item_data_backup.StatusFlags |= (g.LastItemData.StatusFlags & ImGuiItemStatusFlags_HoveredWindow);
+
+        // ...and then we need to undo the group overriding last item data, which gets a bit messy as EndGroup() tries to forward scrollbar being active...
+        // FIXME: This quite messy/tricky, should attempt to get rid of the child window.
+        EndGroup();
+        if (g.LastItemData.ID == 0 || g.LastItemData.ID != GetWindowScrollbarID(draw_window, ImGuiAxis_Y))
+        {
+            g.LastItemData.ID = id;
+            g.LastItemData.ItemFlags = item_data_backup.ItemFlags;
+            g.LastItemData.StatusFlags = item_data_backup.StatusFlags;
+        }
+    }
+    if (state && is_readonly)
+        state->TextSrc = NULL;
+
+    // Log as text
+    if (g.LogEnabled && (!is_password || is_displaying_hint))
+    {
+        LogSetNextTextDecoration("{", "}");
+        LogRenderedText(&draw_pos, buf_display, buf_display_end);
+    }
+
+    if(value_text_pos == ImVec2()){
+        RenderText(ImVec2(frame_bb.Max.x - CalcTextSize(suffix,NULL).x - style.FramePadding.x, frame_bb.Min.y + style.FramePadding.y), suffix);
+    } else {
+        RenderText(ImVec2(value_text_frame_bb.Max.x - CalcTextSize(suffix,NULL).x - style.FramePadding.x, value_text_frame_bb.Min.y), suffix);
+    }
+
+    if (label_size.x > 0)
+        RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label);
+
+    if (value_changed)
+        MarkItemEdited(id);
+
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Inputable);
+    if ((flags & ImGuiInputTextFlags_EnterReturnsTrue) != 0)
+        return validated;
+    else
+        return value_changed;
+}
+
+bool ImGui::custom_ButtonEx(const char* label, std::chrono::steady_clock::time_point* press_start, const ImVec2& size_arg, bool* long_press, ImGuiButtonFlags flags)
+{
+    ImGuiWindow* window = GetCurrentWindow();
+    if (window->SkipItems)
+        return false;
+
+    ImGuiContext& g = *GImGui;
+    const ImGuiStyle& style = g.Style;
+    const ImGuiID id = window->GetID(label);
+    const ImVec2 label_size = CalcTextSize(label, NULL, true);
+
+    ImVec2 pos = window->DC.CursorPos;
+    if ((flags & ImGuiButtonFlags_AlignTextBaseLine) && style.FramePadding.y < window->DC.CurrLineTextBaseOffset) // Try to vertically align buttons that are smaller/have no padding so that text baseline matches (bit hacky, since it shouldn't be a flag)
+        pos.y += window->DC.CurrLineTextBaseOffset - style.FramePadding.y;
+    ImVec2 size = CalcItemSize(size_arg, label_size.x + style.FramePadding.x * 2.0f, label_size.y + style.FramePadding.y * 2.0f);
+
+    const ImRect bb(pos, pos + size);
+    ItemSize(size, style.FramePadding.y);
+    if (!ItemAdd(bb, id))
+        return false;
+
+    bool hovered, held;
+    bool pressed = ButtonBehavior(bb, id, &hovered, &held, flags);
+
+    // Render
+    const ImU32 col = GetColorU32((held && hovered) ? ImGuiCol_ButtonActive : hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
+    RenderNavCursor(bb, id);
+    RenderFrame(bb.Min, bb.Max, col, true, style.FrameRounding);
+
+    if (g.LogEnabled)
+        LogSetNextTextDecoration("[", "]");
+    RenderTextClipped(bb.Min + style.FramePadding, bb.Max - style.FramePadding, label, NULL, &label_size, style.ButtonTextAlign, &bb);
+
+    // Automatically close popups
+    //if (pressed && !(flags & ImGuiButtonFlags_DontClosePopups) && (window->Flags & ImGuiWindowFlags_Popup))
+    //    CloseCurrentPopup();
+
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags);
+    if(held) {
+        if(g.ActiveIdIsJustActivated) {
+            *press_start = std::chrono::steady_clock::now();
+        } else if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - *press_start).count() > 500) {
+            *long_press = true;
+        }
+    }
+    return pressed | *long_press;
+}
+
+bool button_common(const char * button_label, const char * slider_label, ImVec2 size, std::chrono::steady_clock::time_point *press_start, ImGuiStyle& style){
+    bool long_press;
+    if (ImGui::custom_ButtonEx(button_label, press_start, size, &long_press, ImGuiButtonFlags_PressedOnClickRelease))
+
+    {
+        if(long_press) {
+            ImGuiContext& g = *GImGui;
+            g.NavNextActivateId = ImGui::GetCurrentWindow()->GetID(slider_label);
+            g.NavNextActivateFlags = ImGuiActivateFlags_PreferInput;
+            return false;
+        } else {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+bool ImGui::custom_VSliderScalar(const char* label, const char* suffix, const ImVec2& size, ImGuiDataType data_type, void* p_data, const void* p_min, const void* p_max, const char* format, ImGuiSliderFlags flags, const ImVec2 value_text_pos, const ImVec2 value_text_size)
+{
+    ImGuiWindow* window = GetCurrentWindow();
+    if (window->SkipItems)
+        return false;
+
+    ImGuiContext& g = *GImGui;
+    const ImGuiStyle& style = g.Style;
+    const ImGuiID id = window->GetID(label);
+
+    const ImVec2 label_size = CalcTextSize(label, NULL, true);
+    const ImRect frame_bb(window->DC.CursorPos, window->DC.CursorPos + size);
+    const ImRect bb(frame_bb.Min, frame_bb.Max + ImVec2(label_size.x > 0.0f ? style.ItemInnerSpacing.x + label_size.x : 0.0f, 0.0f));
+
+    const bool temp_input_allowed = (flags & ImGuiSliderFlags_NoInput) == 0;
+    ItemSize(bb, style.FramePadding.y);
+    if (!ItemAdd(frame_bb, id))
+        return false;
+
+    // Default format string when passing NULL
+    if (format == NULL)
+        format = DataTypeGetInfo(data_type)->PrintFmt;
+
+    const bool hovered = ItemHoverable(frame_bb, id, g.LastItemData.ItemFlags);
+    bool temp_input_is_active = temp_input_allowed && TempInputIsActive(id);
+    if (!temp_input_is_active)
+    {
+        // Tabbing or Ctrl+Click on Slider turns it into an input box
+        const bool clicked = hovered && IsMouseClicked(0, ImGuiInputFlags_None, id);
+        const bool make_active = (clicked || g.NavActivateId == id);
+        if (make_active && clicked)
+            SetKeyOwner(ImGuiKey_MouseLeft, id);
+        if (make_active && temp_input_allowed)
+            if ((clicked && g.IO.KeyCtrl) || (g.NavActivateId == id && (g.NavActivateFlags & ImGuiActivateFlags_PreferInput)))
+                temp_input_is_active = true;
+
+        // Store initial value (not used by main lib but available as a convenience but some mods e.g. to revert)
+        if (make_active)
+            memcpy(&g.ActiveIdValueOnActivation, p_data, DataTypeGetInfo(data_type)->Size);
+
+        if (make_active && !temp_input_is_active)
+        {
+            SetActiveID(id, window);
+            SetFocusID(id, window);
+            FocusWindow(window);
+            g.ActiveIdUsingNavDirMask |= (1 << ImGuiDir_Left) | (1 << ImGuiDir_Right);
+        }
+    }
+
+    if (temp_input_is_active)
+    {
+        // Only clamp Ctrl+Click input when ImGuiSliderFlags_ClampOnInput is set (generally via ImGuiSliderFlags_AlwaysClamp)
+        const bool clamp_enabled = (flags & ImGuiSliderFlags_ClampOnInput) != 0;
+        return custom_TempInputScalar(frame_bb, id, label, suffix, data_type, p_data, format, clamp_enabled ? p_min : NULL, clamp_enabled ? p_max : NULL, value_text_pos, value_text_size);
+    }
+
+    // Draw frame
+    const ImU32 frame_col = GetColorU32(g.ActiveId == id ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
+    RenderNavCursor(frame_bb, id);
+    RenderFrame(frame_bb.Min, frame_bb.Max, frame_col, true, g.Style.FrameRounding);
+
+    // Slider behavior
+    ImRect grab_bb;
+    const bool value_changed = SliderBehavior(frame_bb, id, data_type, p_data, p_min, p_max, format, flags | ImGuiSliderFlags_Vertical, &grab_bb);
+    if (value_changed)
+        MarkItemEdited(id);
+
+    // Render grab
+    if (grab_bb.Max.y > grab_bb.Min.y)
+        window->DrawList->AddRectFilled(grab_bb.Min, grab_bb.Max, GetColorU32(g.ActiveId == id ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab), style.GrabRounding);
+
+    // Display value using user-provided display format so user can add prefix/suffix/decorations to the value.
+    // For the vertical slider we allow centered text to overlap the frame padding
+    char value_buf[64];
+    int length = DataTypeFormatString(value_buf, IM_COUNTOF(value_buf), data_type, p_data, format);
+    char to_print[length];
+    memcpy(to_print,&value_buf,length);
+
+//     RenderTextClipped(ImVec2(frame_bb.Min.x, frame_bb.Min.y + style.FramePadding.y), frame_bb.Max, value_buf, value_buf_end, NULL, ImVec2(0.5f, 0.0f));
+    RenderText(value_text_pos, to_print);
+    if (label_size.x > 0.0f)
+        RenderText(ImVec2(frame_bb.Max.x + style.ItemInnerSpacing.x, frame_bb.Min.y + style.FramePadding.y), label);
+
+    return value_changed;
+}
+
+bool ImGui::custom_VSliderFloat(const char* label, const char* suffix, const ImVec2& size, float* v, float v_min, float v_max, const char* format, ImGuiSliderFlags flags, const ImVec2 value_text_pos, const ImVec2 value_text_size)
+{
+    return custom_VSliderScalar(label, suffix, size, ImGuiDataType_Float, v, &v_min, &v_max, format, flags, value_text_pos, value_text_size);
+}
+
 
 
 #endif // #ifndef IMGUI_DISABLE
