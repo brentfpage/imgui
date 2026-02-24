@@ -66,6 +66,9 @@ Index of this file:
 #include IMGUI_USER_CONFIG
 #endif
 #include "imconfig.h"
+#define LOG_TAG "librador"
+#include <android/log.h>
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
 #ifndef IMGUI_DISABLE
 
