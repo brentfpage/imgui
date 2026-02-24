@@ -12184,6 +12184,18 @@ bool ImGui::custom_VSliderFloat(const char* label, const char* suffix, const ImV
     return custom_VSliderScalar(label, suffix, size, ImGuiDataType_Float, v, &v_min, &v_max, format, flags, value_text_pos, value_text_size);
 }
 
+// allow all disabled
+bool ImGui::custom_RadioButton(const char* label, int* v, int v_button)
+{
+    const bool pressed = RadioButton(label, *v == v_button);
+    if (pressed)
+        if(*v == v_button) {
+            *v = 0; // all disabled
+        } else {
+            *v = v_button;
+        }
+    return pressed;
+}
 
 
 #endif // #ifndef IMGUI_DISABLE

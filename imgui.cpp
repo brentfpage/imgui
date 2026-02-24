@@ -10507,8 +10507,9 @@ void ImGui::UpdateInputEvents(bool trickle_fast_inputs)
         else if (e->Type == ImGuiInputEventType_MouseWheel)
         {
             // Trickling Rule: Stop processing queued events if we got multiple action on the event
-            if (trickle_fast_inputs && (mouse_moved || mouse_button_changed != 0))
-                break;
+// brentfpage : commented out two lines below.  For labrador_imgui_android, mouse wheel events (really pinch events coded as wheel events) are only used for zooming, and commenting out these two lines leads to better behavior for this purpose.
+//             if (trickle_fast_inputs && (mouse_moved || mouse_button_changed != 0))
+//                 break;
             io.MouseWheelH += e->MouseWheel.WheelX;
             io.MouseWheel += e->MouseWheel.WheelY;
             io.MouseSource = e->MouseWheel.MouseSource;
@@ -10546,9 +10547,8 @@ void ImGui::UpdateInputEvents(bool trickle_fast_inputs)
             if (io.ConfigFlags & ImGuiConfigFlags_NoKeyboard)
                 continue;
             // Trickling Rule: Stop processing queued events if keys/mouse have been interacted with
-// brentfpage : commented out two lines below.  For labrador_imgui_android, mouse wheel events (really pinch events coded as wheel events) are only used for zooming, and commenting out these two lines leads to better behavior for this purpose.
-//             if (trickle_fast_inputs && (mouse_button_changed != 0 || mouse_moved || mouse_wheeled))
-//                 break;
+            if (trickle_fast_inputs && (mouse_button_changed != 0 || mouse_moved || mouse_wheeled))
+                break;
             if (trickle_interleaved_nonchar_keys_and_text && key_changed_nonchar)
                 break;
             unsigned int c = e->Text.Char;
