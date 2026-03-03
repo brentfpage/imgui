@@ -22,6 +22,9 @@ namespace ImGui
     IMGUI_API bool          custom_TempInputScalar(const ImRect& bb, ImGuiID id, const char* label, const char* suffix, ImGuiDataType data_type, void* p_data, const char* format, const void* p_clamp_min = NULL, const void* p_clamp_max = NULL, const ImVec2 label_pos = ImVec2(), const ImVec2 label_size = ImVec2());
     IMGUI_API bool          custom_InputTextEx(const char* label, const char* suffix, const char* hint, char* buf, int buf_size, const ImVec2& size_arg, ImGuiInputTextFlags flags, ImGuiInputTextCallback callback = NULL, void* user_data = NULL, const ImVec2 label_pos = ImVec2(), const ImVec2 label_size = ImVec2());
     IMGUI_API bool          custom_ButtonEx(const char* label, std::chrono::steady_clock::time_point* press_start, const ImVec2& size_arg = ImVec2(0, 0), bool* long_press = NULL, ImGuiButtonFlags flags = 0);
+//     below from https://github.com/ocornut/imgui/issues/3379#issuecomment-2943903877
+    IMGUI_API bool          ScrollWhenDraggingOnVoid(const ImVec2& delta, ImGuiMouseButton mouse_button);
+    IMGUI_API bool          ScrollWhenDraggingAnywhere(const ImVec2& delta, ImGuiMouseButton mouse_button);
 }
 
 // new in widgets

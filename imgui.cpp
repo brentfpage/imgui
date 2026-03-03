@@ -1211,6 +1211,7 @@ IMPLEMENTING SUPPORT for ImGuiBackendFlags_RendererHasTextures:
 #include "imgui.h"
 #ifndef IMGUI_DISABLE
 #include "imgui_internal.h"
+#include "custom_imgui.h"
 
 // System includes
 #include <stdio.h>      // vsnprintf, sscanf, printf
@@ -11999,6 +12000,46 @@ void ImGui::SetScrollFromPosY(float local_y, float center_y_ratio)
 }
 
 //brentfpage: fn below from https://github.com/ocornut/imgui/issues/3379#issuecomment-2943903877
+bool ImGui::ScrollWhenDraggingOnVoid(const ImVec2& delta, ImGuiMouseButton mouse_button)
+{
+    ImGuiContext& g = *GetCurrentContext();
+    ImGuiWindow* window = g.CurrentWindow;
+    ImGuiID id = window->GetID("##scrolldraggingoverlay");
+    KeepAliveID(id);
+
+    // Passing 0 to ItemHoverable means it doesn't set HoveredId, which is what we want.
+    if (g.ActiveId == 0 && ItemHoverable(window->Rect(), 0, g.CurrentItemFlags) && IsMouseClicked(mouse_button, ImGuiInputFlags_None, id))
+        SetActiveID(id, window);
+    if (g.ActiveId == id && !g.IO.MouseDown[mouse_button])
+        ClearActiveID();
+
+    // Set keep underlying highlight. However, mouse not necessarily hovering same item creates a weird disconnect.
+    //if (g.ActiveId == id)
+    //    g.ActiveIdAllowOverlap = true;
+
+    if (g.ActiveId == id && delta.x != 0.0f)
+    {
+        SetScrollX(window, window->Scroll.x + delta.x);
+        return true;
+    }
+    if (g.ActiveId == id && delta.y != 0.0f)
+    {
+        SetScrollY(window, window->Scroll.y + delta.y);
+        return true;
+    }
+    return false;
+}
+
+//brentfpage: fn below from https://github.com/ocornut/imgui/issues/3379#issuecomment-2943903877
+bool ImGui::ScrollWhenDraggingAnywhere(const ImVec2& delta, ImGuiMouseButton mouse_button)
+{
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    const bool backup_hovered_id_allow_overlap = g.HoveredIdAllowOverlap;
+    g.HoveredIdAllowOverlap = true;
+    bool scrolling = ScrollWhenDraggingOnVoid(delta, mouse_button);
+    g.HoveredIdAllowOverlap = backup_hovered_id_allow_overlap; // As we know ScrollWhenDraggingOnVoid() doesn't changed HoveredId we can unconditionally restore.
+    return scrolling;
+}
 
 
 // center_x_ratio: 0.0f left of last item, 0.5f horizontal center of last item, 1.0f right of last item.
