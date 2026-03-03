@@ -3271,6 +3271,10 @@ namespace ImGui
     IMGUI_API void          SetScrollY(ImGuiWindow* window, float scroll_y);
     IMGUI_API void          SetScrollFromPosX(ImGuiWindow* window, float local_x, float center_x_ratio);
     IMGUI_API void          SetScrollFromPosY(ImGuiWindow* window, float local_y, float center_y_ratio);
+    // brentfpage: below from https://github.com/ocornut/imgui/issues/3379#issuecomment-2943903877
+    IMGUI_API void          ScrollWhenDraggingOnVoid(const ImVec2& delta, ImGuiMouseButton mouse_button);
+    IMGUI_API void          ScrollWhenDraggingAnywhere(const ImVec2& delta, ImGuiMouseButton mouse_button);
+
 
     // Early work-in-progress API (ScrollToItem() will become public)
     IMGUI_API void          ScrollToItem(ImGuiScrollFlags flags = 0);

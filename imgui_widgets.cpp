@@ -12076,9 +12076,8 @@ bool ImGui::custom_ButtonEx(const char* label, std::chrono::steady_clock::time_p
 }
 
 bool button_common(const char * button_label, const char * slider_label, ImVec2 size, std::chrono::steady_clock::time_point *press_start, ImGuiStyle& style){
-    bool long_press;
+    bool long_press = false;
     if (ImGui::custom_ButtonEx(button_label, press_start, size, &long_press, ImGuiButtonFlags_PressedOnClickRelease))
-
     {
         if(long_press) {
             ImGuiContext& g = *GImGui;
@@ -12189,13 +12188,96 @@ bool ImGui::custom_RadioButton(const char* label, int* v, int v_button)
 {
     const bool pressed = RadioButton(label, *v == v_button);
     if (pressed)
+    {
         if(*v == v_button) {
             *v = 0; // all disabled
         } else {
             *v = v_button;
         }
+    }
     return pressed;
 }
 
 
+// draw a line through the checkbox if it's disabled
+bool ImGui::custom_Checkbox(const char* label, bool* v)
+{
+    ImGuiWindow* window = GetCurrentWindow();
+    if (window->SkipItems)
+        return false;
+
+    ImGuiContext& g = *GImGui;
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    const ImGuiStyle& style = g.Style;
+    const ImGuiID id = window->GetID(label);
+    const ImVec2 label_size = CalcTextSize(label, NULL, true);
+
+    const float square_sz = GetFrameHeight();
+    const ImVec2 pos = window->DC.CursorPos;
+    const ImRect total_bb(pos, pos + ImVec2(square_sz + (label_size.x > 0.0f ? style.ItemInnerSpacing.x + label_size.x : 0.0f), label_size.y + style.FramePadding.y * 2.0f));
+    ItemSize(total_bb, style.FramePadding.y);
+    const bool is_visible = ItemAdd(total_bb, id);
+    const bool is_multi_select = (g.LastItemData.ItemFlags & ImGuiItemFlags_IsMultiSelect) != 0;
+    if (!is_visible)
+        if (!is_multi_select || !g.BoxSelectState.UnclipMode || !g.BoxSelectState.UnclipRect.Overlaps(total_bb)) // Extra layer of "no logic clip" for box-select support
+        {
+            IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable | (*v ? ImGuiItemStatusFlags_Checked : 0));
+            return false;
+        }
+
+    // Range-Selection/Multi-selection support (header)
+    bool checked = *v;
+    if (is_multi_select)
+        MultiSelectItemHeader(id, &checked, NULL);
+
+    bool hovered, held;
+    bool pressed = ButtonBehavior(total_bb, id, &hovered, &held);
+
+    // Range-Selection/Multi-selection support (footer)
+    if (is_multi_select)
+        MultiSelectItemFooter(id, &checked, &pressed);
+    else if (pressed)
+        checked = !checked;
+
+    if (*v != checked)
+    {
+        *v = checked;
+        pressed = true; // return value
+        MarkItemEdited(id);
+    }
+
+    const ImRect check_bb(pos, pos + ImVec2(square_sz, square_sz));
+    const bool mixed_value = (g.LastItemData.ItemFlags & ImGuiItemFlags_MixedValue) != 0;
+    if (is_visible)
+    {
+        RenderNavCursor(total_bb, id);
+        RenderFrame(check_bb.Min, check_bb.Max, GetColorU32((held && hovered) ? ImGuiCol_FrameBgActive : hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), true, style.FrameRounding);
+        if(g.CurrentItemFlags & ImGuiItemFlags_Disabled)
+            draw_list->AddLine(check_bb.Min, check_bb.Max, IM_COL32(90, 90, 120, 255));
+
+
+        ImU32 check_col = GetColorU32(ImGuiCol_CheckMark);
+        if (mixed_value)
+        {
+            // Undocumented tristate/mixed/indeterminate checkbox (#2644)
+            // This may seem awkwardly designed because the aim is to make ImGuiItemFlags_MixedValue supported by all widgets (not just checkbox)
+            ImVec2 pad(ImMax(1.0f, IM_TRUNC(square_sz / 3.6f)), ImMax(1.0f, IM_TRUNC(square_sz / 3.6f)));
+            window->DrawList->AddRectFilled(check_bb.Min + pad, check_bb.Max - pad, check_col, style.FrameRounding);
+        }
+        else if (*v)
+        {
+            const float pad = ImMax(1.0f, IM_TRUNC(square_sz / 6.0f));
+            RenderCheckMark(window->DrawList, check_bb.Min + ImVec2(pad, pad), check_col, square_sz - pad * 2.0f);
+        }
+    }
+    const ImVec2 label_pos = ImVec2(check_bb.Max.x + style.ItemInnerSpacing.x, check_bb.Min.y + style.FramePadding.y);
+    if (g.LogEnabled)
+        LogRenderedText(&label_pos, mixed_value ? "[~]" : *v ? "[x]" : "[ ]");
+    if (is_visible && label_size.x > 0.0f)
+        RenderText(label_pos, label);
+
+    IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Checkable | (*v ? ImGuiItemStatusFlags_Checked : 0));
+    return pressed;
+}
 #endif // #ifndef IMGUI_DISABLE
