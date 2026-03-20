@@ -12027,54 +12027,7 @@ bool ImGui::custom_InputTextEx(const char* label, const char* suffix, const char
         return value_changed;
 }
 
-bool ImGui::custom_ButtonEx(const char* label, std::chrono::steady_clock::time_point* press_start, const ImVec2& size_arg, bool* long_press, ImGuiButtonFlags flags)
-{
-    ImGuiWindow* window = GetCurrentWindow();
-    if (window->SkipItems)
-        return false;
-
-    ImGuiContext& g = *GImGui;
-    const ImGuiStyle& style = g.Style;
-    const ImGuiID id = window->GetID(label);
-    const ImVec2 label_size = CalcTextSize(label, NULL, true);
-
-    ImVec2 pos = window->DC.CursorPos;
-    if ((flags & ImGuiButtonFlags_AlignTextBaseLine) && style.FramePadding.y < window->DC.CurrLineTextBaseOffset) // Try to vertically align buttons that are smaller/have no padding so that text baseline matches (bit hacky, since it shouldn't be a flag)
-        pos.y += window->DC.CurrLineTextBaseOffset - style.FramePadding.y;
-    ImVec2 size = CalcItemSize(size_arg, label_size.x + style.FramePadding.x * 2.0f, label_size.y + style.FramePadding.y * 2.0f);
-
-    const ImRect bb(pos, pos + size);
-    ItemSize(size, style.FramePadding.y);
-    if (!ItemAdd(bb, id))
-        return false;
-
-    bool hovered, held;
-    bool pressed = ButtonBehavior(bb, id, &hovered, &held, flags);
-
-    // Render
-    const ImU32 col = GetColorU32((held && hovered) ? ImGuiCol_ButtonActive : hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
-    RenderNavCursor(bb, id);
-    RenderFrame(bb.Min, bb.Max, col, true, style.FrameRounding);
-
-    if (g.LogEnabled)
-        LogSetNextTextDecoration("[", "]");
-    RenderTextClipped(bb.Min + style.FramePadding, bb.Max - style.FramePadding, label, NULL, &label_size, style.ButtonTextAlign, &bb);
-
-    // Automatically close popups
-    //if (pressed && !(flags & ImGuiButtonFlags_DontClosePopups) && (window->Flags & ImGuiWindowFlags_Popup))
-    //    CloseCurrentPopup();
-
-    IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags);
-    if(held) {
-        if(g.ActiveIdIsJustActivated) {
-            *press_start = std::chrono::steady_clock::now();
-        } else if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - *press_start).count() > 500) {
-            *long_press = true;
-        }
-    }
-    return pressed | *long_press;
-}
-
+// intended for use with a slider
 // for a press longer than 0.5 s : activate manual input, return false
 // for a press(< 0.5 s)-and-release : return true
 // else : return false
@@ -12092,21 +12045,6 @@ bool button_common(const char * button_label, const char * slider_label, ImVec2 
     }
     return false;
 }
-
-//     if (ImGui::custom_ButtonEx(button_label, size, &long_press, ImGuiButtonFlags_PressedOnClickRelease))
-//     {
-//         if(long_press) {
-//             ImGuiContext& g = *GImGui;
-//             g.NavNextActivateId = ImGui::GetCurrentWindow()->GetID(slider_label);
-//             g.NavNextActivateFlags = ImGuiActivateFlags_PreferInput;
-//             return false;
-//         } else {
-//             return true;
-//         }
-//     }
-//     return false;
-// }
-
 
 bool ImGui::custom_VSliderScalar(const char* label, const char* suffix, const ImVec2& size, ImGuiDataType data_type, void* p_data, const void* p_min, const void* p_max, const char* format, ImGuiSliderFlags flags, const ImVec2 value_text_pos, const ImVec2 value_text_size)
 {
