@@ -12075,21 +12075,37 @@ bool ImGui::custom_ButtonEx(const char* label, std::chrono::steady_clock::time_p
     return pressed | *long_press;
 }
 
-bool button_common(const char * button_label, const char * slider_label, ImVec2 size, std::chrono::steady_clock::time_point *press_start, ImGuiStyle& style){
+// for a press longer than 0.5 s : activate manual input, return false
+// for a press(< 0.5 s)-and-release : return true
+// else : return false
+bool button_common(const char * button_label, const char * slider_label, ImVec2 size, ImGuiStyle& style){
     bool long_press = false;
-    if (ImGui::custom_ButtonEx(button_label, press_start, size, &long_press, ImGuiButtonFlags_PressedOnClickRelease))
-    {
-        if(long_press) {
-            ImGuiContext& g = *GImGui;
-            g.NavNextActivateId = ImGui::GetCurrentWindow()->GetID(slider_label);
-            g.NavNextActivateFlags = ImGuiActivateFlags_PreferInput;
-            return false;
-        } else {
-            return true;
-        }
+    bool pressed_and_released = ImGui::ButtonEx(button_label, size, ImGuiButtonFlags_PressedOnClickRelease);
+    float long_thresh = 0.5; // seconds
+    if(ImGui::IsItemActive() && (ImGui::GetCurrentContext()->ActiveIdTimer >= long_thresh)) {
+        ImGuiContext& g = *GImGui;
+        g.NavNextActivateId = ImGui::GetCurrentWindow()->GetID(slider_label);
+        g.NavNextActivateFlags = ImGuiActivateFlags_PreferInput;
+        return false;
+    } else if (pressed_and_released && (ImGui::GetCurrentContext() -> LastActiveIdTimer < long_thresh)) {
+        return true;
     }
     return false;
 }
+
+//     if (ImGui::custom_ButtonEx(button_label, size, &long_press, ImGuiButtonFlags_PressedOnClickRelease))
+//     {
+//         if(long_press) {
+//             ImGuiContext& g = *GImGui;
+//             g.NavNextActivateId = ImGui::GetCurrentWindow()->GetID(slider_label);
+//             g.NavNextActivateFlags = ImGuiActivateFlags_PreferInput;
+//             return false;
+//         } else {
+//             return true;
+//         }
+//     }
+//     return false;
+// }
 
 
 bool ImGui::custom_VSliderScalar(const char* label, const char* suffix, const ImVec2& size, ImGuiDataType data_type, void* p_data, const void* p_min, const void* p_max, const char* format, ImGuiSliderFlags flags, const ImVec2 value_text_pos, const ImVec2 value_text_size)

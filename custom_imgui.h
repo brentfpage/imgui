@@ -28,7 +28,7 @@ namespace ImGui
 }
 
 // new in widgets
-bool button_common(const char * button_label, const char * slider_label, ImVec2 size, std::chrono::steady_clock::time_point *press_start, ImGuiStyle& style);
+bool button_common(const char * button_label, const char * slider_label, ImVec2 size, ImGuiStyle& style);
 
 
 // also added AddPinchUpdateEvent,AddPinchStartEvent to the ImGuiIO struct in imgui.h as well as in imgui.cpp
