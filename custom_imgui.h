@@ -16,6 +16,7 @@ namespace ImGui
     IMGUI_API bool          custom_RadioButton(const char* label, int* v, int v_button);           // allow all disabled
 
     IMGUI_API bool          custom_Checkbox(const char* label, bool* v); // draw a line through if disabled
+    IMGUI_API bool          custom_ButtonEx(const char* label, const ImVec2& size_arg = ImVec2(0, 0), ImGuiButtonFlags flags = 0);
 
 // modified versions of declarations from imgui_internal.h
     IMGUI_API bool          custom_TempInputText(const ImRect& bb, ImGuiID id, const char* label, const char* suffix, char* buf, int buf_size, ImGuiInputTextFlags flags, const ImVec2 label_pos = ImVec2(), const ImVec2 label_size = ImVec2());
