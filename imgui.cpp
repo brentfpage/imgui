@@ -1657,7 +1657,7 @@ ImGuiIO::ImGuiIO()
 
     // Inputs Behaviors
     MouseDoubleClickTime = 0.30f;
-    MouseDoubleClickMaxDist = 6.0f;
+    MouseDoubleClickMaxDist = 50.f;
     MouseDragThreshold = 6.0f;
     KeyRepeatDelay = 0.275f;
     KeyRepeatRate = 0.050f;
