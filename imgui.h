@@ -2528,9 +2528,7 @@ struct ImGuiIO
     IMGUI_API void  AddMouseWheelEvent(float wheel_x, float wheel_y);       // Queue a mouse wheel update. wheel_y<0: scroll down, wheel_y>0: scroll up, wheel_x<0: scroll right, wheel_x>0: scroll left.
     IMGUI_API void  AddMouseSourceEvent(ImGuiMouseSource source);           // Queue a mouse source change (Mouse/TouchScreen/Pen)
     IMGUI_API void  AddFocusEvent(bool focused);                            // Queue a gain/loss of focus for the application (generally based on OS/platform focus of your window)
-    IMGUI_API void  AddPinchStartEvent();                            // Queue a pinch initiation
     IMGUI_API void  AddPinchUpdateEvent(float scale, float span_x, float span_y, float focus_x, float focus_y);                            // Queue a pinch status update
-    IMGUI_API void  AddPinchEndEvent();                            // Queue a pinch termination
     IMGUI_API void  AddInputCharacter(unsigned int c);                      // Queue a new character input
     IMGUI_API void  AddInputCharacterUTF16(ImWchar16 c);                    // Queue a new character input from a UTF-16 character, it can be a surrogate
     IMGUI_API void  AddInputCharactersUTF8(const char* str);                // Queue a new characters input from a UTF-8 string

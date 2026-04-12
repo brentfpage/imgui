@@ -478,19 +478,9 @@ bool ImGui_ImplSDL3_ProcessEvent(const SDL_Event* event)
             bd->WantUpdateGamepadsList = true;
             return true;
         }
-        case SDL_EVENT_PINCH_BEGIN:
-        {
-            io.AddPinchStartEvent();
-            return true;
-        }
         case SDL_EVENT_PINCH_UPDATE:
         {
             io.AddPinchUpdateEvent(event->pinch.scale, event->pinch.span_x, event->pinch.span_y, event->pinch.focus_x, event->pinch.focus_y);
-            return true;
-        }
-        case SDL_EVENT_PINCH_END:
-        {
-            io.AddPinchEndEvent();
             return true;
         }
         default:

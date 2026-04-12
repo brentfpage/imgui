@@ -2025,20 +2025,6 @@ void ImGuiIO::AddPinchUpdateEvent(float scale, float span_x, float span_y, float
     g.IO.FocusPos = finger_pos_middle;
 }
 
-// brentfpage
-// Queue a pinch initiation
-void ImGuiIO::AddPinchStartEvent()
-{
-    return;
-}
-
-// brentfpage
-// Queue a pinch termination
-void ImGuiIO::AddPinchEndEvent()
-{
-    return;
-}
-
 ImGuiPlatformIO::ImGuiPlatformIO()
 {
     // Most fields are initialized with zero

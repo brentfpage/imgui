@@ -31,4 +31,4 @@ namespace ImGui
 bool button_common(const char * button_label, const char * slider_label, ImVec2 size, ImGuiStyle& style);
 
 
-// also added AddPinchUpdateEvent,AddPinchStartEvent to the ImGuiIO struct in imgui.h as well as in imgui.cpp
+// also added AddPinchUpdateEvent to the ImGuiIO struct in imgui.h as well as in imgui.cpp
