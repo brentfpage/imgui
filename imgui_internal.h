@@ -58,8 +58,6 @@ Index of this file:
 #include <stdlib.h>     // NULL, malloc, free, qsort, atoi, atof
 #include <math.h>       // sqrtf, fabsf, fmodf, powf, floorf, ceilf, cosf, sinf
 #include <limits.h>     // INT_MIN, INT_MAX
-#include <chrono>
-
 
 // Enable SSE intrinsics if available
 #if (defined __SSE__ || defined __x86_64__ || defined _M_X64 || (defined(_M_IX86_FP) && (_M_IX86_FP >= 1))) && !defined(IMGUI_DISABLE_SSE) && !defined(_M_ARM64) && !defined(_M_ARM64EC)
@@ -587,8 +585,6 @@ struct IMGUI_API ImRect
 
     constexpr ImRect()                                        : Min(0.0f, 0.0f), Max(0.0f, 0.0f)  {}
     constexpr ImRect(const ImVec2& min, const ImVec2& max)    : Min(min), Max(max)                {}
-    // FIXME : below added by brentfpage appears to break with existing imgui approach
-    ImRect(ImVec2& min, ImVec2& max)    : Min(min), Max(max)                {}
     constexpr ImRect(const ImVec4& v)                         : Min(v.x, v.y), Max(v.z, v.w)      {}
     constexpr ImRect(float x1, float y1, float x2, float y2)  : Min(x1, y1), Max(x2, y2)          {}
 
@@ -3271,7 +3267,6 @@ namespace ImGui
     IMGUI_API void          SetScrollY(ImGuiWindow* window, float scroll_y);
     IMGUI_API void          SetScrollFromPosX(ImGuiWindow* window, float local_x, float center_x_ratio);
     IMGUI_API void          SetScrollFromPosY(ImGuiWindow* window, float local_y, float center_y_ratio);
-
 
     // Early work-in-progress API (ScrollToItem() will become public)
     IMGUI_API void          ScrollToItem(ImGuiScrollFlags flags = 0);
