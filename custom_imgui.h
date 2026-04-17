@@ -28,7 +28,7 @@ namespace ImGui
 }
 
 // new in widgets
-bool button_common(const char * button_label, const char * slider_label, ImVec2 size, ImGuiStyle& style);
+bool ButtonForSlider(const char * button_label, const char * slider_label, ImVec2 size);
 
 
 // also added AddPinchUpdateEvent to the ImGuiIO struct in imgui.h as well as in imgui.cpp

@@ -12031,7 +12031,7 @@ bool ImGui::custom_InputTextEx(const char* label, const char* suffix, const char
 // for a press longer than 0.5 s : activate manual input, return false
 // for a press(< 0.5 s)-and-release : return true
 // else : return false
-bool button_common(const char * button_label, const char * slider_label, ImVec2 size, ImGuiStyle& style){
+bool ButtonForSlider(const char * button_label, const char * slider_label, ImVec2 size){
     bool long_press = false;
     bool pressed_and_released = ImGui::ButtonEx(button_label, size, ImGuiButtonFlags_PressedOnClickRelease);
     float long_thresh = 0.5; // seconds
