@@ -6,7 +6,8 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 
-#define SKOIA if(ImGui::IsItemActive()) ImGui::SetKeyOwner(ImGuiKey_MouseLeft, ImGui::GetActiveID()) // required for avoiding inadvertent inputs to other widgets when trying to deactivate the most recent widget
+#define SKOIA if(ImGui::IsItemActive()) SKO // required for avoiding inadvertent inputs to other widgets when trying to deactivate the most recent widget.  might want to use IsItemActiveAsInputText
+#define SKO ImGui::SetKeyOwner(ImGuiKey_MouseLeft, ImGui::GetItemID())
 
 namespace ImGui
 {
